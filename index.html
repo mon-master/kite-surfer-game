@@ -7,13 +7,9 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: #040a14;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            font-family: Arial, sans-serif;
-            user-select: none;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 100vh; font-family: Arial, sans-serif; user-select: none;
         }
         canvas { display: block; border-radius: 6px; }
         #info { color: #446; font-size: 12px; margin-top: 8px; text-align: center; }
@@ -23,16 +19,15 @@
 <canvas id="c"></canvas>
 <div id="info">
     ← → カイト操作 &nbsp;|&nbsp; ↑↓ 高さ調整 &nbsp;|&nbsp; SPACE ジャンプ &nbsp;|&nbsp;
-    Q カイトループ &nbsp;|&nbsp; S 360° &nbsp;|&nbsp; A Grab &nbsp;|&nbsp; D Back Roll
+    Q カイトループ &nbsp;|&nbsp; S 360° &nbsp;|&nbsp; A Grab &nbsp;|&nbsp; D Back Roll &nbsp;|&nbsp;
+    X 体制を戻す
 </div>
-
 <script>
 // ============================================================
-//  KITE SURFER BIG AIR  v3.0
-//  - リアルタイム高度 / 飛距離 / 滞空時間 表示
-//  - カイトループ(Q)：タイミングで追加高度
-//  - 360°(S)：タイミングで追加飛距離
-//  - コンボボーナス（両方早めに決めると爆発的）
+//  KITE SURFER BIG AIR  v4.0
+//  - 風窓超えでカイトパワー急落
+//  - 落下速度・体制でクラッシュ判定
+//  - 回転残留・逆さまランディング失敗
 // ============================================================
 
 const canvas = document.getElementById('c');
@@ -41,13 +36,19 @@ const W = Math.min(900, window.innerWidth  - 10);
 const H = Math.min(540, window.innerHeight - 60);
 canvas.width = W; canvas.height = H;
 
-// ---- 定数 ----
 const WATER_Y         = Math.floor(H * 0.70);
 const GRAVITY         = 0.28;
 const PLAYER_SCREEN_X = Math.floor(W * 0.38);
 const LINE_LEN        = 130;
-const PX_TO_M         = 0.20;  // ピクセル→メートル換算
+const PX_TO_M         = 0.20;
 const FPS             = 60;
+
+// ---- 風窓・クラッシュ閾値 ----
+const WIND_EDGE_WARN     = -22;   // これより前方だと黄色警告
+const WIND_EDGE_COLLAPSE = -10;   // これより前方でパワー崩壊
+const CRASH_VY           = 9.5;  // 落下速度クラッシュ閾値（px/frame）
+const CRASH_ROTSPD       = 2.8;  // 回転残留クラッシュ閾値（deg/frame）
+const ROT_DECAY          = 0.955; // 空中での自然な回転減衰
 
 // ---- 入力 ----
 const keys = {};
@@ -58,7 +59,7 @@ window.addEventListener('keyup',   e => { keys[e.code] = false; });
 const CAM = { x: 0, y: 0 };
 function updateCamera() {
     CAM.x = P.x - PLAYER_SCREEN_X;
-    const targetY = P.onWater ? 0 : Math.min(0, P.y - H * 0.42);
+    const targetY = (P.onWater && !P.crashing) ? 0 : Math.min(0, P.y - H * 0.42);
     CAM.y += (targetY - CAM.y) * 0.065;
 }
 const sx = wx => wx - CAM.x;
@@ -66,26 +67,22 @@ const sy = wy => wy - CAM.y;
 
 // ---- ゲーム状態 ----
 let score = 0, best = 0, jumpCount = 0, frame = 0;
-let resultCard = null; // 着地後の結果カード
+let resultCard = null;
 
-// ---- プレイヤー（ワールド座標） ----
+// ---- プレイヤー ----
 const P = {
     x: W * 0.8, y: WATER_Y,
     vx: 5, vy: 0,
     onWater: true,
-    airTime: 0,
-    peakH: 0,          // ピーク高度（ピクセル）
-    jumpX: 0,          // ジャンプ開始X
+    airTime: 0, peakH: 0, jumpX: 0,
     dir: 1,
     trickScore: 0, tricks: new Set(),
     landCd: 0,
     rot: 0, rotSpd: 0,
-    // タイミング管理
-    loopDone: false,
-    spinDone: false,
-    comboWindow: 0,    // コンボ有効フレーム
-    floatFrames: 0,    // フロート効果（重力軽減）残フレーム
-    boostVx: 0,        // 飛距離ブースト
+    loopDone: false, spinDone: false,
+    comboWindow: 0, floatFrames: 0, boostVx: 0,
+    // クラッシュ関連
+    crashing: false, crashTimer: 0,
 };
 
 // ---- カイト ----
@@ -93,9 +90,10 @@ const K = {
     angle: -55, targetAngle: -55, prevAngle: -55,
     power: 0,
     x: 0, y: 0,
-    looping: false,
-    loopTimer: 0,
-    loopBase: -90,
+    looping: false, loopTimer: 0, loopBase: -90,
+    // 風窓状態
+    edgeState: 'ok',   // 'ok' | 'warn' | 'collapse'
+    shakeAmt: 0,
 };
 
 const WIND = { base: 8.5 };
@@ -122,8 +120,13 @@ const WAVES = Array.from({ length: 22 }, () => ({
 function update() {
     frame++;
     const wind = WIND.base + Math.sin(frame * 0.009) * 1.5;
-    updateKite(wind);
-    updatePlayer();
+
+    if (P.crashing) {
+        updateCrash();
+    } else {
+        updateKite(wind);
+        updatePlayer();
+    }
     updateCamera();
 
     WAVES.forEach(w => {
@@ -140,6 +143,7 @@ function update() {
     if (resultCard && --resultCard.life <= 0) resultCard = null;
 }
 
+// ---- 風窓パワー倍率 ----
 function posMult(angle) {
     const d = angle - (-65);
     return Math.max(0.12, Math.exp(-(d*d)/(2*58*58)));
@@ -152,11 +156,9 @@ function updateKite(wind) {
         if (keys['ArrowUp'])    K.targetAngle = Math.max(-176, K.targetAngle - 1.6);
         if (keys['ArrowDown'])  K.targetAngle = Math.min( -4,  K.targetAngle + 1.6);
 
-        // カイトループ起動（空中Qキー）
         if (keys['KeyQ'] && !P.onWater && !K.looping && P.airTime > 5) {
-            K.looping   = true;
-            K.loopTimer = 0;
-            K.loopBase  = K.angle;
+            K.looping = true; K.loopTimer = 0;
+            K.loopBase = K.angle;
             triggerKiteLoop();
         }
     }
@@ -164,10 +166,8 @@ function updateKite(wind) {
     K.prevAngle = K.angle;
 
     if (K.looping) {
-        // ループ: 45フレームで一回転スイープ（パワーゾーンを2回通過）
         K.loopTimer++;
-        const progress = K.loopTimer / 45;
-        K.angle = K.loopBase + Math.sin(progress * Math.PI * 2) * 90;
+        K.angle = K.loopBase + Math.sin(K.loopTimer / 45 * Math.PI * 2) * 90;
         if (K.loopTimer >= 45) {
             K.looping = false; K.loopTimer = 0;
             K.angle = K.loopBase; K.targetAngle = K.loopBase;
@@ -176,75 +176,48 @@ function updateKite(wind) {
         K.angle += (K.targetAngle - K.angle) * 0.10;
     }
 
-    const rad = K.angle * Math.PI / 180;
-    K.x = P.x + Math.cos(rad) * LINE_LEN;
-    K.y = P.y + Math.sin(rad) * LINE_LEN - 10;
+    // ---- 風窓チェック ----
+    // プレイヤーが速く動くほどカイトが風下に流される
+    const downwindPush = P.vx * P.dir * 0.12; // 速度に比例して風下方向に押し出す
+    if (!K.looping) K.angle += downwindPush;
 
+    if (K.angle > WIND_EDGE_COLLAPSE) {
+        K.edgeState = 'collapse';
+        K.shakeAmt  = Math.min(8, K.shakeAmt + 0.5);
+        // カイトが風窓外に飛び出すほど角度が前方に流れる
+        K.angle += (0 - K.angle) * 0.04;
+        K.targetAngle = Math.min(K.targetAngle, WIND_EDGE_WARN);
+    } else if (K.angle > WIND_EDGE_WARN) {
+        K.edgeState = 'warn';
+        K.shakeAmt  = Math.min(4, K.shakeAmt + 0.3);
+    } else {
+        K.edgeState = 'ok';
+        K.shakeAmt  = Math.max(0, K.shakeAmt - 0.4);
+    }
+
+    const rad = K.angle * Math.PI / 180;
+    const shakeX = K.shakeAmt * (Math.random() - 0.5) * 2;
+    const shakeY = K.shakeAmt * (Math.random() - 0.5) * 2;
+    K.x = P.x + Math.cos(rad) * LINE_LEN + shakeX;
+    K.y = P.y + Math.sin(rad) * LINE_LEN - 10 + shakeY;
+
+    // 実効パワー（風窓超えで急落）
     const steerSpd   = Math.abs(K.angle - K.prevAngle);
     const steerBonus = Math.min(2.8, steerSpd * 1.4);
     let basePow = wind * posMult(K.angle) + steerBonus;
-    if (K.looping) basePow *= (1.5 + posMult(K.angle) * 1.8); // ループ中はパワー爆発
+    if (K.looping) basePow *= (1.5 + posMult(K.angle) * 1.8);
+
+    if (K.edgeState === 'collapse') {
+        // パワーゾーン崩壊 ──  急速にゼロへ
+        basePow *= Math.max(0, (WIND_EDGE_COLLAPSE - K.angle) / 5);
+    } else if (K.edgeState === 'warn') {
+        basePow *= 0.5 + 0.5 * ((WIND_EDGE_WARN - K.angle) / (WIND_EDGE_WARN - WIND_EDGE_COLLAPSE));
+    }
     K.power = basePow;
 }
 
-function triggerKiteLoop() {
-    const earlyLoop = P.airTime < 22;
-    const comboReady = P.comboWindow > 0; // 直前に360が入っていた
-
-    if (earlyLoop) {
-        // 早いタイミング：上方向ブースト
-        P.vy -= 3.5;
-        burst(P.x, P.y, '#00BFFF');
-        addMsg('KITE LOOP! ↑ HEIGHT', P.x, P.y - 50, '#00BFFF', 22, 75);
-    } else {
-        // 後半タイミング：飛距離ブースト
-        P.boostVx = P.dir * 3;
-        burst(P.x, P.y, '#00BFFF');
-        addMsg('KITE LOOP! → DISTANCE', P.x, P.y - 50, '#00BFFF', 22, 75);
-    }
-    P.trickScore += 800;
-    P.loopDone = true;
-
-    if (comboReady || P.spinDone) {
-        triggerCombo();
-    } else {
-        P.comboWindow = 40; // 40F以内に360を決めるとコンボ
-    }
-}
-
-function triggerSpin() {
-    const earlySpin = P.airTime < 22;
-
-    if (earlySpin) {
-        P.vy -= 1.5;
-        P.floatFrames = 50;
-        addMsg('360° ↑ FLOAT!', P.x, P.y - 50, '#00CFFF', 20, 70);
-    } else {
-        P.boostVx = P.dir * 2;
-        addMsg('360° → SEND IT!', P.x, P.y - 50, '#00CFFF', 20, 70);
-    }
-    P.spinDone = true;
-
-    if (P.comboWindow > 0 || P.loopDone) {
-        triggerCombo();
-    } else {
-        P.comboWindow = 40;
-    }
-}
-
-function triggerCombo() {
-    P.vy   -= 2.0;
-    P.boostVx += P.dir * 2;
-    P.trickScore += 1000;
-    burst(P.x, P.y - 20, '#FFD700');
-    burst(P.x, P.y + 10, '#FF6B6B');
-    addMsg('🔥 COMBO BOOST! +1000', P.x, P.y - 80, '#FFD700', 26, 100);
-    P.comboWindow = 0;
-}
-
 function updatePlayer() {
-    const dx   = K.x - P.x;
-    const dy   = K.y - P.y;
+    const dx = K.x - P.x, dy = K.y - P.y;
     const dist = Math.sqrt(dx*dx + dy*dy);
     const pullX = (dx/dist) * K.power * 0.072;
     const pullY = (dy/dist) * K.power * 0.072;
@@ -254,19 +227,18 @@ function updatePlayer() {
         P.vx  = Math.max(-13, Math.min(13, P.vx));
         P.vx *= 0.958;
         if (Math.abs(P.vx) > 0.5) P.dir = P.vx > 0 ? 1 : -1;
-        P.x += P.vx; P.y = WATER_Y; P.vy = 0; P.rot = 0;
+        P.x += P.vx; P.y = WATER_Y; P.vy = 0; P.rot = 0; P.rotSpd = 0;
 
         if (Math.abs(P.vx) > 4.5 && Math.random() < 0.22)
             splash(P.x - P.vx*2.5, WATER_Y, 2);
 
         if (keys['Space'] && P.landCd === 0 && Math.abs(P.vx) > 2 && K.power > 2) {
             const popStr = Math.min(14, Math.abs(P.vx)*0.65 + K.power*0.55 + 3);
-            P.vy = -popStr;
-            P.vx += P.dir * 2;
+            P.vy = -popStr; P.vx += P.dir * 2;
             P.onWater = false;
             P.airTime = 0; P.peakH = 0; P.jumpX = P.x;
-            P.trickScore = 0; P.tricks.clear();
-            P.rotSpd = 0; P.loopDone = false; P.spinDone = false;
+            P.trickScore = 0; P.tricks.clear(); P.rotSpd = 0;
+            P.loopDone = false; P.spinDone = false;
             P.comboWindow = 0; P.floatFrames = 0; P.boostVx = 0;
             jumpCount++;
             splash(P.x, WATER_Y, 32);
@@ -275,11 +247,20 @@ function updatePlayer() {
 
     } else {
         P.airTime++;
+
+        // 体制を戻す（Xキー）
+        if (keys['KeyX'] && Math.abs(P.rotSpd) > 0.2) {
+            P.rotSpd *= 0.80;
+        }
+
+        // 自然な回転減衰
+        P.rotSpd *= ROT_DECAY;
+        if (Math.abs(P.rotSpd) < 0.3) P.rotSpd = 0;
+
         P.vx += pullX * 0.28;
         const grav = P.floatFrames > 0 ? GRAVITY * 0.35 : GRAVITY;
         P.vy += pullY * 0.28 + grav;
 
-        // 飛距離ブースト（徐々に消費）
         if (P.boostVx !== 0) {
             P.vx += P.boostVx * 0.04;
             P.boostVx *= 0.92;
@@ -293,14 +274,12 @@ function updatePlayer() {
 
         P.peakH = Math.max(P.peakH, WATER_Y - P.y);
 
-        // トリック
         if (P.airTime > 8 && WATER_Y - P.y > 5) {
             TRICKS.forEach(t => {
                 if (keys[t.code] && !P.tricks.has(t.name)) {
                     P.tricks.add(t.name);
                     P.trickScore += t.pts;
                     burst(P.x, P.y, t.col);
-
                     if (t.isSpin && !P.spinDone) {
                         P.rotSpd = P.dir * 9;
                         triggerSpin();
@@ -311,7 +290,75 @@ function updatePlayer() {
             });
         }
 
-        if (P.y >= WATER_Y && P.vy > 0) land();
+        if (P.y >= WATER_Y && P.vy > 0) checkLanding();
+    }
+}
+
+// ---- ランディング判定 ----
+function checkLanding() {
+    // 体制角度（0 = 直立, 180 = 逆さま）
+    const normRot   = ((P.rot % 360) + 360) % 360;
+    const bodyAngle = normRot > 180 ? 360 - normRot : normRot; // 0〜180（逆さ具合）
+
+    const tooFast  = P.vy > CRASH_VY;
+    const spinning = Math.abs(P.rotSpd) > CRASH_ROTSPD;
+    const upsideDown = bodyAngle > 60; // 60°以上傾いていたらアウト
+
+    if (tooFast || spinning || upsideDown) {
+        const reasons = [];
+        if (tooFast)    reasons.push('HARD IMPACT');
+        if (spinning)   reasons.push('STILL SPINNING');
+        if (upsideDown) reasons.push('BODY ANGLE');
+        crash(reasons.join(' + '));
+    } else {
+        land();
+    }
+}
+
+function crash(reason) {
+    P.crashing  = true;
+    P.crashTimer = 0;
+    P.y   = WATER_Y;
+    P.vy  = -3;
+    P.vx *= 0.2;
+    P.rotSpd = P.dir * 18; // ゴロゴロ転がる
+
+    // 大量の水しぶき
+    splash(P.x, WATER_Y, 80);
+    for (let i = 0; i < 3; i++)
+        setTimeout(() => splash(P.x + (Math.random()-0.5)*40, WATER_Y, 20), i*150);
+
+    addMsg('WIPEOUT!', P.x, WATER_Y - 70, '#FF4444', 30, 130);
+    addMsg(reason, P.x, WATER_Y - 100, '#FF8888', 14, 110);
+
+    // 部分スコア（高さと滞空のみ、トリックなし）
+    const pts = Math.floor(P.peakH * 1.2 + P.airTime * 0.8);
+    score += pts;
+
+    resultCard = {
+        heightM:  Math.floor(P.peakH * PX_TO_M),
+        distM:    Math.floor(Math.abs(P.x - P.jumpX) * PX_TO_M * 0.6),
+        airtimeS: (P.airTime / FPS).toFixed(1),
+        pts, tricks: [], crashed: true, reason,
+        life: 210, maxLife: 210,
+    };
+}
+
+function updateCrash() {
+    P.crashTimer++;
+    P.rot += P.rotSpd;
+    P.rotSpd *= 0.88;
+    P.vx    *= 0.92;
+    P.y      = WATER_Y;
+
+    if (P.crashTimer > 90) {
+        // 復帰
+        P.crashing = false; P.crashTimer = 0;
+        P.rot = 0; P.rotSpd = 0;
+        P.onWater = true;
+        P.airTime = 0; P.peakH = 0;
+        P.tricks.clear(); P.trickScore = 0;
+        P.landCd = 120;
     }
 }
 
@@ -320,13 +367,12 @@ function land() {
     const distM    = Math.floor(Math.abs(P.x - P.jumpX) * PX_TO_M * 0.6);
     const airtimeS = (P.airTime / FPS).toFixed(1);
     const pts      = Math.floor(P.peakH * 3.5 + P.airTime * 1.8 + P.trickScore);
-
     score += pts; if (score > best) best = score;
 
-    // 結果カード表示
     resultCard = {
         heightM, distM, airtimeS, pts,
         tricks: Array.from(P.tricks),
+        crashed: false,
         life: 180, maxLife: 180,
     };
 
@@ -338,346 +384,403 @@ function land() {
     P.loopDone = false; P.spinDone = false; P.boostVx = 0;
 }
 
-function splash(x, y, n) {
-    for (let i=0; i<n; i++)
-        ptcls.push({ x, y, vx:(Math.random()-.5)*5.5, vy:-Math.random()*6,
-            life:22+Math.random()*28, maxLife:50, col:'rgba(160,220,255,' });
-}
-function burst(x, y, hex) {
-    const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
-    for (let i=0; i<20; i++) {
-        const a=(Math.PI*2*i)/20;
-        ptcls.push({ x, y, vx:Math.cos(a)*(2.5+Math.random()*2), vy:Math.sin(a)*(2.5+Math.random()*2),
-            life:38, maxLife:38, col:`rgba(${r},${g},${b},` });
+// ---- トリックタイミング ----
+function triggerKiteLoop() {
+    const early = P.airTime < 22;
+    if (early) {
+        P.vy -= 3.5;
+        burst(P.x, P.y, '#00BFFF');
+        addMsg('KITE LOOP! ↑ HEIGHT', P.x, P.y-50, '#00BFFF', 22, 75);
+    } else {
+        P.boostVx = P.dir * 3;
+        burst(P.x, P.y, '#00BFFF');
+        addMsg('KITE LOOP! → DISTANCE', P.x, P.y-50, '#00BFFF', 22, 75);
     }
+    P.trickScore += 800; P.loopDone = true;
+    if (P.comboWindow > 0 || P.spinDone) triggerCombo();
+    else P.comboWindow = 40;
 }
-function addMsg(text, x, y, color='#fff', size=18, life=70) {
-    msgs.push({ text, x, y, color, size, life, maxLife:life });
+function triggerSpin() {
+    const early = P.airTime < 22;
+    if (early) { P.vy -= 1.5; P.floatFrames = 50; addMsg('360° ↑ FLOAT!', P.x, P.y-50, '#00CFFF', 20, 70); }
+    else        { P.boostVx = P.dir*2;              addMsg('360° → SEND IT!', P.x, P.y-50, '#00CFFF', 20, 70); }
+    P.spinDone = true;
+    if (P.comboWindow > 0 || P.loopDone) triggerCombo();
+    else P.comboWindow = 40;
 }
+function triggerCombo() {
+    P.vy -= 2.0; P.boostVx += P.dir*2; P.trickScore += 1000;
+    burst(P.x, P.y-20, '#FFD700'); burst(P.x, P.y+10, '#FF6B6B');
+    addMsg('🔥 COMBO BOOST! +1000', P.x, P.y-80, '#FFD700', 26, 100);
+    P.comboWindow = 0;
+}
+
+// ---- パーティクル / メッセージ ----
+function splash(x,y,n){
+    for(let i=0;i<n;i++)
+        ptcls.push({x,y,vx:(Math.random()-.5)*5.5,vy:-Math.random()*6,
+            life:22+Math.random()*28,maxLife:50,col:'rgba(160,220,255,'});
+}
+function burst(x,y,hex){
+    const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+    for(let i=0;i<20;i++){const a=(Math.PI*2*i)/20;
+        ptcls.push({x,y,vx:Math.cos(a)*(2.5+Math.random()*2),vy:Math.sin(a)*(2.5+Math.random()*2),
+            life:38,maxLife:38,col:`rgba(${r},${g},${b},`});}
+}
+function addMsg(text,x,y,color='#fff',size=18,life=70){msgs.push({text,x,y,color,size,life,maxLife:life});}
 
 // ============================================================
 //  DRAW
 // ============================================================
-function draw() {
-    ctx.clearRect(0, 0, W, H);
+function draw(){
+    ctx.clearRect(0,0,W,H);
     drawSky();
-
-    ctx.save();
-    ctx.translate(-CAM.x, -CAM.y);
+    ctx.save(); ctx.translate(-CAM.x,-CAM.y);
     drawWater(); drawWaves(); drawParticles();
     drawKiteLine(); drawKite(); drawPlayer(); drawWorldMsgs();
     ctx.restore();
-
     drawHUD();
-    if (!P.onWater) drawFlightStats();
-    if (resultCard)  drawResultCard();
+    if (!P.onWater || P.crashing) drawFlightStats();
+    if (resultCard) drawResultCard();
 }
 
-function drawSky() {
-    const waterScrY = Math.max(0, sy(WATER_Y));
-    if (waterScrY > 0) {
-        const g = ctx.createLinearGradient(0,0,0,waterScrY);
-        g.addColorStop(0,'#060d1c'); g.addColorStop(.45,'#0d2a5e'); g.addColorStop(1,'#1d5598');
-        ctx.fillStyle=g; ctx.fillRect(0,0,W,waterScrY);
+function drawSky(){
+    const waterScrY=Math.max(0,sy(WATER_Y));
+    if(waterScrY>0){
+        const g=ctx.createLinearGradient(0,0,0,waterScrY);
+        g.addColorStop(0,'#060d1c');g.addColorStop(.45,'#0d2a5e');g.addColorStop(1,'#1d5598');
+        ctx.fillStyle=g;ctx.fillRect(0,0,W,waterScrY);
     }
     ctx.fillStyle='rgba(255,255,255,0.11)';
-    for (let i=0; i<5; i++) {
-        let cx=((i*W*.52-CAM.x*.12)%(W*1.1)); if(cx<-130) cx+=W*1.1;
-        cloud(cx, 40+i*26-CAM.y*.05, 50+i*12);
+    for(let i=0;i<5;i++){
+        let cx=((i*W*.52-CAM.x*.12)%(W*1.1));if(cx<-130)cx+=W*1.1;
+        cloud(cx,40+i*26-CAM.y*.05,50+i*12);
     }
 }
-function cloud(x,y,s) {
+function cloud(x,y,s){
     ctx.beginPath();
-    ctx.arc(x,y,s*.50,0,Math.PI*2); ctx.arc(x+s*.45,y-s*.10,s*.38,0,Math.PI*2);
-    ctx.arc(x+s*.85,y,s*.32,0,Math.PI*2); ctx.fill();
+    ctx.arc(x,y,s*.50,0,Math.PI*2);ctx.arc(x+s*.45,y-s*.10,s*.38,0,Math.PI*2);
+    ctx.arc(x+s*.85,y,s*.32,0,Math.PI*2);ctx.fill();
 }
-
-function drawWater() {
+function drawWater(){
     const left=CAM.x-200;
     const g=ctx.createLinearGradient(0,WATER_Y,0,WATER_Y+H);
-    g.addColorStop(0,'#1e7fc0'); g.addColorStop(.35,'#0e537f'); g.addColorStop(1,'#05172a');
-    ctx.fillStyle=g; ctx.fillRect(left,WATER_Y,W+400,H+300);
+    g.addColorStop(0,'#1e7fc0');g.addColorStop(.35,'#0e537f');g.addColorStop(1,'#05172a');
+    ctx.fillStyle=g;ctx.fillRect(left,WATER_Y,W+400,H+300);
     ctx.fillStyle='rgba(180,240,255,0.055)';
-    for(let i=0;i<8;i++) { const shx=left+((frame*1.3+i*138)%(W+400)); ctx.fillRect(shx,WATER_Y+5,55,2); }
+    for(let i=0;i<8;i++){const shx=left+((frame*1.3+i*138)%(W+400));ctx.fillRect(shx,WATER_Y+5,55,2);}
 }
-
-function drawWaves() {
-    ctx.strokeStyle='rgba(180,235,255,0.52)'; ctx.lineWidth=1.7;
-    WAVES.forEach(w => {
+function drawWaves(){
+    ctx.strokeStyle='rgba(180,235,255,0.52)';ctx.lineWidth=1.7;
+    WAVES.forEach(w=>{
         const wy=WATER_Y+Math.sin(w.ph+frame*.022)*w.amp*.28;
-        ctx.beginPath(); ctx.moveTo(w.worldX,wy);
+        ctx.beginPath();ctx.moveTo(w.worldX,wy);
         ctx.bezierCurveTo(w.worldX+w.len*.3,wy-w.amp,w.worldX+w.len*.7,wy-w.amp,w.worldX+w.len,wy);
         ctx.stroke();
     });
 }
-
-function drawParticles() {
-    ptcls.forEach(p => {
+function drawParticles(){
+    ptcls.forEach(p=>{
         ctx.fillStyle=p.col+(p.life/p.maxLife).toFixed(2)+')';
-        ctx.beginPath(); ctx.arc(p.x,p.y,2.2,0,Math.PI*2); ctx.fill();
+        ctx.beginPath();ctx.arc(p.x,p.y,2.2,0,Math.PI*2);ctx.fill();
     });
 }
-
-function drawKiteLine() {
-    // ループ中は発光するライン
-    if (K.looping) {
-        ctx.strokeStyle=`rgba(0,191,255,${0.4+posMult(K.angle)*0.6})`;
-        ctx.lineWidth=2+posMult(K.angle)*2;
-        ctx.shadowColor='#00BFFF'; ctx.shadowBlur=8;
-    } else {
-        ctx.strokeStyle='rgba(220,220,220,0.72)'; ctx.lineWidth=1.2; ctx.shadowBlur=0;
-    }
+function drawKiteLine(){
+    const col = K.edgeState==='collapse' ? '#FF4444' :
+                K.edgeState==='warn'     ? '#FFD700' : 'rgba(220,220,220,0.72)';
+    if(K.looping){ctx.shadowColor='#00BFFF';ctx.shadowBlur=8;}
+    ctx.strokeStyle=col; ctx.lineWidth=K.looping?2.5:1.2;
     ctx.setLineDash(K.looping?[]:[5,5]);
-    ctx.beginPath(); ctx.moveTo(P.x,P.y-8); ctx.lineTo(K.x,K.y); ctx.stroke();
-    ctx.setLineDash([]); ctx.shadowBlur=0;
+    ctx.beginPath();ctx.moveTo(P.x,P.y-8);ctx.lineTo(K.x,K.y);ctx.stroke();
+    ctx.setLineDash([]);ctx.shadowBlur=0;
 }
 
-function drawKite() {
+function drawKite(){
     ctx.save();
-    ctx.translate(K.x, K.y);
+    ctx.translate(K.x,K.y);
     ctx.rotate((K.angle+90)*Math.PI/180);
 
     const pw=Math.max(0.3,K.power/9);
-    const W2=32+pw*5, H2=14+pw*2;
+    const W2=32+pw*5,H2=14+pw*2;
     const pm=posMult(K.angle);
 
-    if (pm>0.5 || K.looping) {
-        ctx.shadowColor='#00BFFF';
-        ctx.shadowBlur=8+(K.looping?25:pm*18);
-    }
+    const kiteCol = K.edgeState==='collapse' ? '#888' :
+                    K.edgeState==='warn'     ? '#FF8C00' : '#E53935';
+    const hlCol   = K.edgeState==='collapse' ? '#aaa' :
+                    K.edgeState==='warn'     ? '#FFD700' : '#FF8A80';
 
-    // スポーツカイト本体（C型）
-    ctx.fillStyle='#E53935';
+    if(pm>0.5||K.looping){ctx.shadowColor='#00BFFF';ctx.shadowBlur=8+(K.looping?25:pm*18);}
+
+    ctx.fillStyle=kiteCol;
     ctx.beginPath();
     ctx.moveTo(-W2,0);
     ctx.quadraticCurveTo(-W2*.5,-H2*1.6,0,-H2*1.8);
     ctx.quadraticCurveTo( W2*.5,-H2*1.6,W2,0);
     ctx.quadraticCurveTo( W2*.5, H2*.6, 0, H2*.8);
     ctx.quadraticCurveTo(-W2*.5, H2*.6,-W2,0);
-    ctx.closePath(); ctx.fill();
+    ctx.closePath();ctx.fill();
 
-    // ストラット
-    ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(0,-H2*1.8); ctx.lineTo(0,H2*.8); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,-H2*1.8);ctx.lineTo(0,H2*.8);ctx.stroke();
     [-0.52,0.52].forEach(t=>{
-        const bx=W2*t, bt=-H2*(1.8-Math.abs(t)*.5), bb=H2*(0.8-Math.abs(t)*.3);
-        ctx.beginPath(); ctx.moveTo(bx,bt); ctx.lineTo(bx,bb); ctx.stroke();
+        const bx=W2*t,bt=-H2*(1.8-Math.abs(t)*.5),bb=H2*(0.8-Math.abs(t)*.3);
+        ctx.beginPath();ctx.moveTo(bx,bt);ctx.lineTo(bx,bb);ctx.stroke();
     });
 
-    // 前縁ハイライト
-    ctx.strokeStyle='rgba(255,200,200,0.55)'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(-W2,0);
+    ctx.strokeStyle=hlCol.replace('#','rgba(').replace(/(..)(..)(..)/, (_,r,g,b)=>
+        `rgba(${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)},0.55)`);
+    ctx.strokeStyle='rgba(255,200,200,0.55)';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(-W2,0);
     ctx.quadraticCurveTo(-W2*.5,-H2*1.6,0,-H2*1.8);
-    ctx.quadraticCurveTo(W2*.5,-H2*1.6,W2,0); ctx.stroke();
+    ctx.quadraticCurveTo(W2*.5,-H2*1.6,W2,0);ctx.stroke();
 
-    // ウィングチップ
     ctx.fillStyle='#B71C1C';
-    [[-W2,0],[W2,0]].forEach(([tx,ty])=>{ ctx.beginPath(); ctx.arc(tx,ty,5,0,Math.PI*2); ctx.fill(); });
+    [[-W2,0],[W2,0]].forEach(([tx,ty])=>{ctx.beginPath();ctx.arc(tx,ty,5,0,Math.PI*2);ctx.fill();});
 
-    ctx.shadowBlur=0; ctx.restore();
+    ctx.shadowBlur=0;ctx.restore();
 }
 
-function drawPlayer() {
-    ctx.save();
-    ctx.translate(P.x, P.y);
-    if (P.rotSpd!==0) ctx.rotate(P.rot*Math.PI/180);
+function drawPlayer(){
+    ctx.save();ctx.translate(P.x,P.y);
+    ctx.rotate(P.rot*Math.PI/180);
+
+    // クラッシュ中は赤くフラッシュ
+    const bodyCol = P.crashing && (P.crashTimer%8<4) ? '#FF4444' : '#FF8C42';
 
     ctx.fillStyle='#2196F3';
-    rrect(-22,-6,44,9,3); ctx.fill();
-    ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.lineWidth=1; ctx.stroke();
+    rrect(-22,-6,44,9,3);ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1;ctx.stroke();
 
-    ctx.fillStyle='#FF8C42';
-    ctx.fillRect(-9,-22,5,16); ctx.fillRect(4,-22,5,16);
+    ctx.fillStyle=bodyCol;
+    ctx.fillRect(-9,-22,5,16);ctx.fillRect(4,-22,5,16);
     ctx.fillRect(-7,-38,14,17);
-    ctx.beginPath(); ctx.arc(0,-44,7,0,Math.PI*2); ctx.fill();
+    ctx.beginPath();ctx.arc(0,-44,7,0,Math.PI*2);ctx.fill();
     ctx.fillStyle='#E91E63';
-    ctx.beginPath(); ctx.arc(0,-44,7,Math.PI,Math.PI*2); ctx.fill();
-    ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(-5,-47,10,4);
+    ctx.beginPath();ctx.arc(0,-44,7,Math.PI,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,.45)';ctx.fillRect(-5,-47,10,4);
 
-    // フロート中：光エフェクト
-    if (P.floatFrames > 0) {
+    if(P.floatFrames>0){
         const a=(P.floatFrames/50)*.4;
         ctx.fillStyle=`rgba(0,191,255,${a.toFixed(2)})`;
-        ctx.beginPath(); ctx.arc(0,-25,30,0,Math.PI*2); ctx.fill();
+        ctx.beginPath();ctx.arc(0,-25,30,0,Math.PI*2);ctx.fill();
     }
-
     ctx.restore();
 }
 
-function drawWorldMsgs() {
+function drawWorldMsgs(){
     msgs.forEach(m=>{
         const a=Math.min(1,m.life/28);
-        ctx.save(); ctx.globalAlpha=a;
-        ctx.fillStyle=m.color; ctx.font=`bold ${m.size}px Arial`;
-        ctx.textAlign='center'; ctx.shadowColor='rgba(0,0,0,.9)'; ctx.shadowBlur=5;
-        ctx.fillText(m.text,m.x,m.y); ctx.restore();
+        ctx.save();ctx.globalAlpha=a;
+        ctx.fillStyle=m.color;ctx.font=`bold ${m.size}px Arial`;
+        ctx.textAlign='center';ctx.shadowColor='rgba(0,0,0,.9)';ctx.shadowBlur=5;
+        ctx.fillText(m.text,m.x,m.y);ctx.restore();
     });
 }
 
-// ---- 飛行中リアルタイムスタッツ ----
-function drawFlightStats() {
-    const heightM  = Math.max(0, Math.floor((WATER_Y - P.y) * PX_TO_M));
-    const peakM    = Math.floor(P.peakH * PX_TO_M);
-    const distM    = Math.floor(Math.abs(P.x - P.jumpX) * PX_TO_M * 0.6);
-    const airtimeS = (P.airTime / FPS).toFixed(1);
+// ---- 飛行中スタッツ ----
+function drawFlightStats(){
+    const heightM  = P.crashing ? Math.floor(P.peakH*PX_TO_M)
+                                 : Math.max(0,Math.floor((WATER_Y-P.y)*PX_TO_M));
+    const peakM    = Math.floor(P.peakH*PX_TO_M);
+    const distM    = Math.floor(Math.abs(P.x-P.jumpX)*PX_TO_M*.6);
+    const airtimeS = (P.airTime/FPS).toFixed(1);
 
-    const panW=170, panH=100, panX=W/2-panW/2, panY=14;
+    // 落下速度インジケータ（vy > 0 かつ空中時）
+    const vy       = P.vy;
+    const vyPct    = Math.min(1, Math.max(0, vy / (CRASH_VY * 1.2)));
+    const vyCol    = vy <= 0    ? '#00FF88' :
+                     vy < CRASH_VY*0.7 ? '#FFD700' : '#FF4444';
 
-    ctx.fillStyle='rgba(0,0,0,0.62)';
-    rrect(panX, panY, panW, panH, 10); ctx.fill();
+    // 体制インジケータ
+    const normRot  = ((P.rot%360)+360)%360;
+    const bodyAngle= normRot>180 ? 360-normRot : normRot;
+    const rotCol   = Math.abs(P.rotSpd) < 1   ? '#00FF88' :
+                     Math.abs(P.rotSpd) < CRASH_ROTSPD ? '#FFD700' : '#FF4444';
+
+    // カイト状態
+    const kiteCol  = K.edgeState==='collapse' ? '#FF4444' :
+                     K.edgeState==='warn'     ? '#FFD700' : '#00FF88';
+
+    const panW=178,panH=110,panX=W/2-panW/2,panY=14;
+    ctx.fillStyle='rgba(0,0,0,0.65)';
+    rrect(panX,panY,panW,panH,10);ctx.fill();
 
     ctx.textAlign='left';
-    // 高度
-    ctx.fillStyle='#FFD700'; ctx.font='bold 13px Arial';
-    ctx.fillText('▲ 高度', panX+12, panY+24);
-    ctx.fillStyle='#fff'; ctx.font='bold 22px Arial';
-    ctx.fillText(`${heightM} m`, panX+12, panY+46);
-    ctx.fillStyle='#aaa'; ctx.font='11px Arial';
-    ctx.fillText(`PEAK ${peakM}m`, panX+12, panY+60);
 
-    // 飛距離
-    ctx.fillStyle='#00FF88'; ctx.font='bold 13px Arial';
-    ctx.fillText('→ 飛距離', panX+90, panY+24);
-    ctx.fillStyle='#fff'; ctx.font='bold 22px Arial';
-    ctx.fillText(`${distM} m`, panX+90, panY+46);
-    // 滞空時間
-    ctx.fillStyle='#88CCFF'; ctx.font='bold 13px Arial';
-    ctx.fillText('⏱ 滞空', panX+90, panY+62);
-    ctx.fillStyle='#fff'; ctx.font='bold 16px Arial';
-    ctx.fillText(`${airtimeS} s`, panX+90, panY+80);
+    // 高度
+    ctx.fillStyle='#FFD700';ctx.font='bold 12px Arial';
+    ctx.fillText('▲ 高度',panX+12,panY+22);
+    ctx.fillStyle='#fff';ctx.font='bold 22px Arial';
+    ctx.fillText(`${heightM} m`,panX+12,panY+44);
+    ctx.fillStyle='#888';ctx.font='10px Arial';
+    ctx.fillText(`PEAK ${peakM}m`,panX+12,panY+57);
+
+    // 飛距離・滞空
+    ctx.fillStyle='#00FF88';ctx.font='bold 12px Arial';
+    ctx.fillText('→ 飛距離',panX+100,panY+22);
+    ctx.fillStyle='#fff';ctx.font='bold 20px Arial';
+    ctx.fillText(`${distM} m`,panX+100,panY+44);
+    ctx.fillStyle='#88CCFF';ctx.font='bold 12px Arial';
+    ctx.fillText('⏱ 滞空',panX+100,panY+60);
+    ctx.fillStyle='#fff';ctx.font='bold 16px Arial';
+    ctx.fillText(`${airtimeS} s`,panX+100,panY+76);
+
+    // ---- 状態インジケータ 3つ ----
+    const indY = panY+85;
+    // 落下速度
+    drawIndicator(panX+14, indY, '落下', vyCol, vy>0 ? (vyPct*100).toFixed(0)+'%' : 'OK');
+    // 体制
+    const rotPct = Math.min(1, Math.abs(P.rotSpd)/CRASH_ROTSPD);
+    drawIndicator(panX+72, indY, '体制', rotCol, Math.abs(P.rotSpd)<0.5 ? 'OK' : rotPct>0.9 ? '危険!' : '注意');
+    // カイト
+    drawIndicator(panX+130, indY, 'カイト', kiteCol,
+        K.edgeState==='collapse'?'崩壊':K.edgeState==='warn'?'注意':'OK');
+
+    // 風窓警告
+    if (K.edgeState !== 'ok') {
+        const warnA = 0.7 + Math.sin(frame*0.25)*0.3;
+        ctx.save();ctx.globalAlpha=warnA;
+        ctx.fillStyle=K.edgeState==='collapse'?'#FF4444':'#FFD700';
+        ctx.font='bold 13px Arial';ctx.textAlign='center';
+        ctx.fillText(K.edgeState==='collapse'?'⚠ KITE EDGE – POWER LOST!':'⚠ KITE EDGE – STEER BACK!',
+                     W/2, panY+panH+20);
+        ctx.restore();
+    }
+}
+
+function drawIndicator(x,y,label,col,val){
+    ctx.fillStyle='rgba(255,255,255,0.12)';
+    rrect(x,y,50,18,4);ctx.fill();
+    ctx.fillStyle=col;ctx.font='bold 9px Arial';ctx.textAlign='center';
+    ctx.fillText(label,x+25,y+8);
+    ctx.font='bold 10px Arial';
+    ctx.fillText(val,x+25,y+17);
 }
 
 // ---- 着地結果カード ----
-function drawResultCard() {
-    const rc = resultCard;
-    const a  = Math.min(1, rc.life > 150 ? (180-rc.life)/30 : rc.life/60);
-    const cw = 300, ch = 160;
-    const cx = W/2 - cw/2, cy = H/2 - ch/2 - 40;
+function drawResultCard(){
+    const rc=resultCard;
+    const a =Math.min(1, rc.life>150?(180-rc.life)/30:rc.life/60);
+    const cw=300,ch=rc.crashed?180:170,cx=W/2-cw/2,cy=H/2-ch/2-40;
 
-    ctx.save(); ctx.globalAlpha = a;
-
-    ctx.fillStyle='rgba(0,10,30,0.88)';
-    rrect(cx, cy, cw, ch, 14); ctx.fill();
-    ctx.strokeStyle='rgba(0,191,255,0.5)'; ctx.lineWidth=1.5;
-    rrect(cx, cy, cw, ch, 14); ctx.stroke();
+    ctx.save();ctx.globalAlpha=a;
+    ctx.fillStyle=rc.crashed?'rgba(30,0,0,0.90)':'rgba(0,10,30,0.88)';
+    rrect(cx,cy,cw,ch,14);ctx.fill();
+    ctx.strokeStyle=rc.crashed?'rgba(255,68,68,0.6)':'rgba(0,191,255,0.5)';
+    ctx.lineWidth=1.5;rrect(cx,cy,cw,ch,14);ctx.stroke();
 
     ctx.textAlign='center';
-    ctx.fillStyle='#00FF88'; ctx.font='bold 18px Arial';
-    ctx.fillText('LANDED!', W/2, cy+30);
+    if(rc.crashed){
+        ctx.fillStyle='#FF4444';ctx.font='bold 22px Arial';
+        ctx.fillText('WIPEOUT!',W/2,cy+32);
+        ctx.fillStyle='#FF8888';ctx.font='13px Arial';
+        ctx.fillText(rc.reason||'',W/2,cy+52);
+    }else{
+        ctx.fillStyle='#00FF88';ctx.font='bold 18px Arial';
+        ctx.fillText('LANDED!',W/2,cy+30);
+    }
 
-    // 3つのスタッツ
-    const stats = [
-        { label:'▲ 高度', val:`${rc.heightM} m`, col:'#FFD700', x: W/2-90 },
-        { label:'→ 飛距離', val:`${rc.distM} m`, col:'#00FF88', x: W/2    },
-        { label:'⏱ 滞空', val:`${rc.airtimeS} s`, col:'#88CCFF', x: W/2+90 },
+    const stats=[
+        {label:'▲ 高度',val:`${rc.heightM} m`,col:'#FFD700',x:W/2-90},
+        {label:'→ 飛距離',val:`${rc.distM} m`,col:'#00FF88',x:W/2},
+        {label:'⏱ 滞空',val:`${rc.airtimeS} s`,col:'#88CCFF',x:W/2+90},
     ];
+    const oy=rc.crashed?20:0;
     stats.forEach(s=>{
-        ctx.fillStyle=s.col; ctx.font='bold 11px Arial';
-        ctx.fillText(s.label, s.x, cy+55);
-        ctx.fillStyle='#fff'; ctx.font='bold 24px Arial';
-        ctx.fillText(s.val, s.x, cy+80);
+        ctx.fillStyle=s.col;ctx.font='bold 11px Arial';ctx.fillText(s.label,s.x,cy+58+oy);
+        ctx.fillStyle='#fff';ctx.font='bold 22px Arial';ctx.fillText(s.val,s.x,cy+80+oy);
     });
 
-    // トリック
-    if (rc.tricks.length > 0) {
-        ctx.fillStyle='rgba(255,215,0,0.8)'; ctx.font='13px Arial';
-        ctx.fillText(rc.tricks.join(' / '), W/2, cy+105);
+    if(!rc.crashed&&rc.tricks.length>0){
+        ctx.fillStyle='rgba(255,215,0,0.8)';ctx.font='13px Arial';
+        ctx.fillText(rc.tricks.join(' / '),W/2,cy+104);
     }
-
-    // スコア
-    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font='14px Arial';
-    ctx.fillText(`+${rc.pts} pts`, W/2, cy+128);
-
-    // ベスト
-    if (score === best && best > 0) {
-        ctx.fillStyle='#FFD700'; ctx.font='bold 13px Arial';
-        ctx.fillText('★ NEW BEST!', W/2, cy+148);
+    ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='14px Arial';
+    ctx.fillText(`+${rc.pts} pts`,W/2,cy+122+oy);
+    if(!rc.crashed&&score===best&&best>0){
+        ctx.fillStyle='#FFD700';ctx.font='bold 13px Arial';
+        ctx.fillText('★ NEW BEST!',W/2,cy+142);
     }
-
     ctx.restore();
 }
 
 // ---- HUD ----
-function drawHUD() {
-    const wind = (WIND.base+Math.sin(frame*.009)*1.5).toFixed(1);
-    const spd  = Math.abs(P.vx).toFixed(1);
+function drawHUD(){
+    const wind=(WIND.base+Math.sin(frame*.009)*1.5).toFixed(1);
+    const spd=Math.abs(P.vx).toFixed(1);
 
-    ctx.fillStyle='rgba(0,0,0,.55)';
-    rrect(8,8,196,105,8); ctx.fill();
-    ctx.fillStyle='#00FF88'; ctx.font='bold 22px Arial'; ctx.textAlign='left';
-    ctx.fillText('SCORE: '+score, 18, 40);
-    ctx.fillStyle='#FFD700'; ctx.font='14px Arial';
-    ctx.fillText('BEST:  '+best,      18, 60);
-    ctx.fillText('JUMPS: '+jumpCount, 18, 78);
-    ctx.fillStyle='#88CCFF';
-    ctx.fillText('SPEED: '+spd+' kn', 18, 96);
+    ctx.fillStyle='rgba(0,0,0,.55)';rrect(8,8,196,105,8);ctx.fill();
+    ctx.fillStyle='#00FF88';ctx.font='bold 22px Arial';ctx.textAlign='left';
+    ctx.fillText('SCORE: '+score,18,40);
+    ctx.fillStyle='#FFD700';ctx.font='14px Arial';
+    ctx.fillText('BEST:  '+best,18,60);
+    ctx.fillText('JUMPS: '+jumpCount,18,78);
+    ctx.fillStyle='#88CCFF';ctx.fillText('SPEED: '+spd+' kn',18,96);
 
-    ctx.fillStyle='rgba(0,0,0,.55)';
-    rrect(W-160,8,152,42,8); ctx.fill();
-    ctx.fillStyle='#88CCFF'; ctx.font='13px Arial'; ctx.textAlign='left';
-    ctx.fillText('WIND: '+wind+' kn  →', W-150, 32);
+    ctx.fillStyle='rgba(0,0,0,.55)';rrect(W-160,8,152,42,8);ctx.fill();
+    ctx.fillStyle='#88CCFF';ctx.font='13px Arial';ctx.textAlign='left';
+    ctx.fillText('WIND: '+wind+' kn  →',W-150,32);
 
     drawPowerBar();
 
-    // トリックガイド（空中）
-    if (!P.onWater && P.airTime > 6) {
-        ctx.fillStyle='rgba(0,0,0,.52)';
-        rrect(W-172,58,164,100,8); ctx.fill();
-        ctx.fillStyle='#FFD700'; ctx.font='bold 12px Arial'; ctx.textAlign='left';
-        ctx.fillText('TRICKS:', W-162, 78);
-        const guide = [
-            {code:'Q', name:'Kite Loop', pts:800, col:'#00BFFF', done:P.loopDone},
-            ...TRICKS.map(t=>({code:t.code.replace('Key',''), name:t.name, pts:t.pts, col:t.col, done:P.tricks.has(t.name)})),
+    if(!P.onWater&&P.airTime>6){
+        ctx.fillStyle='rgba(0,0,0,.52)';rrect(W-172,58,164,108,8);ctx.fill();
+        ctx.fillStyle='#FFD700';ctx.font='bold 12px Arial';ctx.textAlign='left';
+        ctx.fillText('TRICKS:',W-162,78);
+        const guide=[
+            {code:'Q',name:'Kite Loop',pts:800,col:'#00BFFF',done:P.loopDone},
+            ...TRICKS.map(t=>({code:t.code.replace('Key',''),name:t.name,pts:t.pts,col:t.col,done:P.tricks.has(t.name)})),
         ];
         guide.forEach((t,i)=>{
-            ctx.fillStyle = t.done ? '#00FF88' : '#999';
-            ctx.fillText(`[${t.code}] ${t.name}  +${t.pts}`, W-162, 95+i*17);
+            ctx.fillStyle=t.done?'#00FF88':'#999';
+            ctx.fillText(`[${t.code}] ${t.name}  +${t.pts}`,W-162,95+i*17);
         });
-        // コンボヒント
-        if (P.comboWindow > 0) {
+        if(P.comboWindow>0){
             ctx.fillStyle=`rgba(255,215,0,${(P.comboWindow/40).toFixed(2)})`;
-            ctx.font='bold 11px Arial';
-            ctx.fillText('▶ COMBO WINDOW!', W-162, 163);
+            ctx.font='bold 11px Arial';ctx.fillText('▶ COMBO WINDOW!',W-162,163);
+        }
+        // Xキーヒント（回転中）
+        if(Math.abs(P.rotSpd)>1.5){
+            ctx.fillStyle='rgba(255,200,100,0.85)';ctx.font='bold 11px Arial';
+            ctx.fillText('[X] 体制を戻す',W-162,175);
         }
     }
 
-    if (jumpCount===0 && frame<380) {
+    if(jumpCount===0&&frame<380){
         const a=Math.max(0,1-frame/320);
         ctx.fillStyle=`rgba(255,255,255,${(a*.75).toFixed(2)})`;
-        ctx.font='14px Arial'; ctx.textAlign='center';
-        ctx.fillText('← → でカイト操作してスピードアップ → SPACE でジャンプ！', W/2, H-22);
+        ctx.font='14px Arial';ctx.textAlign='center';
+        ctx.fillText('← → でカイト操作してスピードアップ → SPACE でジャンプ！',W/2,H-22);
     }
 }
 
-function drawPowerBar() {
+function drawPowerBar(){
     const mw=162,mh=14,mx=W/2-mw/2,my=H-46;
-    ctx.fillStyle='rgba(0,0,0,.6)'; rrect(mx-8,my-24,mw+16,mh+32,8); ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font='11px Arial'; ctx.textAlign='center';
-    ctx.fillText('KITE POWER', W/2, my-8);
-    ctx.fillStyle='rgba(255,255,255,.15)'; rrect(mx,my,mw,mh,4); ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,.6)';rrect(mx-8,my-24,mw+16,mh+32,8);ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.28)';ctx.font='11px Arial';ctx.textAlign='center';
+    ctx.fillText('KITE POWER',W/2,my-8);
+    ctx.fillStyle='rgba(255,255,255,.15)';rrect(mx,my,mw,mh,4);ctx.fill();
     const pct=Math.min(1,K.power/10);
     if(pct>0.02){
         const g=ctx.createLinearGradient(mx,0,mx+mw,0);
-        g.addColorStop(0,'#00FF88'); g.addColorStop(.5,'#FFD700'); g.addColorStop(1,'#FF4444');
+        g.addColorStop(0,'#00FF88');g.addColorStop(.5,'#FFD700');g.addColorStop(1,'#FF4444');
         if(K.looping){ctx.shadowColor='#00BFFF';ctx.shadowBlur=12;}
-        ctx.fillStyle=g; rrect(mx,my,mw*pct,mh,4); ctx.fill();
-        ctx.shadowBlur=0;
+        ctx.fillStyle=g;rrect(mx,my,mw*pct,mh,4);ctx.fill();ctx.shadowBlur=0;
     }
     const jx=mx+mw*.22;
-    ctx.strokeStyle='rgba(255,255,255,.75)'; ctx.lineWidth=1.5;
-    ctx.setLineDash([3,3]);
-    ctx.beginPath(); ctx.moveTo(jx,my-2); ctx.lineTo(jx,my+mh+2); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.75)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(jx,my-2);ctx.lineTo(jx,my+mh+2);ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle='rgba(255,255,255,.55)'; ctx.font='9px Arial'; ctx.textAlign='center';
+    ctx.fillStyle='rgba(255,255,255,.55)';ctx.font='9px Arial';ctx.textAlign='center';
     ctx.fillText('JUMP',jx,my+mh+12);
 }
 
 function rrect(x,y,w,h,r){
     ctx.beginPath();
-    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
-    ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
-    ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
-    ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r); ctx.closePath();
+    ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+    ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+    ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
+    ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
 }
 
 (function loop(){ update(); draw(); requestAnimationFrame(loop); })();
