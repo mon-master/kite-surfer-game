@@ -160,7 +160,8 @@ function updateKite(wind) {
         if (keys['ArrowUp'])    K.targetAngle = Math.max(-176, K.targetAngle - 1.0);
         if (keys['ArrowDown'])  K.targetAngle = Math.min( -4,  K.targetAngle + 1.0);
 
-        if (keys['KeyQ'] && !P.onWater && !K.looping && P.airTime > 5) {
+        // ループは1ジャンプに1回のみ（loopDoneで制限）
+        if (keys['KeyQ'] && !P.onWater && !K.looping && !P.loopDone && P.airTime > 5) {
             K.looping = true; K.loopTimer = 0;
             K.loopBase = K.angle;
             triggerKiteLoop();
@@ -175,7 +176,9 @@ function updateKite(wind) {
         K.angle = K.loopBase + Math.sin(K.loopTimer / 45 * Math.PI * 2) * 90;
         if (K.loopTimer >= 45) {
             K.looping = false; K.loopTimer = 0;
-            K.angle = K.loopBase; K.targetAngle = K.loopBase;
+            // ループ後はカイトを安全角度に戻す（風窓端に行きすぎない）
+            K.angle = Math.min(-35, K.loopBase);
+            K.targetAngle = Math.min(-35, K.loopBase);
         }
     } else {
         // 追従を遅く（0.10→0.065）
