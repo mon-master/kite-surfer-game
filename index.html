@@ -40,7 +40,7 @@ const WATER_Y         = Math.floor(H * 0.70);
 const GRAVITY         = 0.28;
 const PLAYER_SCREEN_X = Math.floor(W * 0.38);
 const LINE_LEN        = 130;
-const PX_TO_M         = 0.09;  // 現実スケール: 最高30m台（typhoon級）
+const PX_TO_M         = 0.045; // 現実スケール: 通常5〜15m、最高25m前後
 const FPS             = 60;
 
 // ---- 風窓・クラッシュ閾値 ----
@@ -251,7 +251,7 @@ function updatePlayer() {
             splash(P.x - P.vx*2.5, WATER_Y, 2);
 
         if (keys['Space'] && P.landCd === 0 && Math.abs(P.vx) > 2 && K.power > 2) {
-            const popStr = Math.min(10, Math.abs(P.vx)*0.55 + K.power*0.45 + 2);
+            const popStr = Math.min(7.5, Math.abs(P.vx)*0.40 + K.power*0.35 + 1.5);
             P.vy = -popStr; P.vx += P.dir * 2;
             P.onWater = false;
             P.airTime = 0; P.peakH = 0; P.jumpX = P.x;
@@ -406,7 +406,7 @@ function land() {
 function triggerKiteLoop() {
     const early = P.airTime < 22;
     if (early) {
-        P.vy -= 3.5;
+        P.vy -= 2.0;
         burst(P.x, P.y, '#00BFFF');
         addMsg('KITE LOOP! ↑ HEIGHT', P.x, P.y-50, '#00BFFF', 22, 75);
     } else {
@@ -420,14 +420,14 @@ function triggerKiteLoop() {
 }
 function triggerSpin() {
     const early = P.airTime < 22;
-    if (early) { P.vy -= 1.5; P.floatFrames = 50; addMsg('360° ↑ FLOAT!', P.x, P.y-50, '#00CFFF', 20, 70); }
+    if (early) { P.vy -= 0.8; P.floatFrames = 40; addMsg('360° ↑ FLOAT!', P.x, P.y-50, '#00CFFF', 20, 70); }
     else        { P.boostVx = P.dir*2;              addMsg('360° → SEND IT!', P.x, P.y-50, '#00CFFF', 20, 70); }
     P.spinDone = true;
     if (P.comboWindow > 0 || P.loopDone) triggerCombo();
     else P.comboWindow = 40;
 }
 function triggerCombo() {
-    P.vy -= 2.0; P.boostVx += P.dir*2; P.trickScore += 1000;
+    P.vy -= 1.0; P.boostVx += P.dir*1.5; P.trickScore += 1000;
     burst(P.x, P.y-20, '#FFD700'); burst(P.x, P.y+10, '#FF6B6B');
     addMsg('🔥 COMBO BOOST! +1000', P.x, P.y-80, '#FFD700', 26, 100);
     P.comboWindow = 0;
