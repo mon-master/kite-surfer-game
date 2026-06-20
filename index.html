@@ -47,8 +47,7 @@ const FPS             = 60;
 const WIND_EDGE_WARN     = -22;   // これより前方だと黄色警告
 const WIND_EDGE_COLLAPSE = -10;   // これより前方でパワー崩壊
 const CRASH_VY           = 9.5;  // 落下速度クラッシュ閾値（px/frame）
-const CRASH_ROTSPD       = 2.8;  // 回転残留クラッシュ閾値（deg/frame）
-const ROT_DECAY          = 0.955; // 空中での自然な回転減衰
+const TRICK_ROT_SPEED    = 11;   // トリック回転速度（deg/frame）→ 360÷11≈33フレームで1周
 
 // ---- 入力 ----
 const keys = {};
@@ -78,7 +77,9 @@ const P = {
     dir: 1,
     trickScore: 0, tricks: new Set(),
     landCd: 0,
-    rot: 0, rotSpd: 0,
+    rot: 0,
+    trickRot: 0,   // 残り回転量（度）: 正=前転方向, 負=後転方向
+    crashRot: 0,   // クラッシュ時のみ使うゴロゴロ回転
     loopDone: false, spinDone: false,
     comboWindow: 0, floatFrames: 0, boostVx: 0,
     // クラッシュ関連
@@ -249,7 +250,7 @@ function updatePlayer() {
         P.vx  = Math.max(-13, Math.min(13, P.vx));
         P.vx *= 0.958;
         if (Math.abs(P.vx) > 0.5) P.dir = P.vx > 0 ? 1 : -1;
-        P.x += P.vx; P.y = WATER_Y; P.vy = 0; P.rot = 0; P.rotSpd = 0;
+        P.x += P.vx; P.y = WATER_Y; P.vy = 0; P.rot = 0; P.trickRot = 0;
 
         if (Math.abs(P.vx) > 4.5 && Math.random() < 0.22)
             splash(P.x - P.vx*2.5, WATER_Y, 2);
@@ -268,7 +269,7 @@ function updatePlayer() {
             P.vx += P.dir * popStr * (1 - uplift) * 1.2;     // 横方向成分（真上なら0）
             P.onWater = false;
             P.airTime = 0; P.peakH = 0; P.jumpX = P.x;
-            P.trickScore = 0; P.tricks.clear(); P.rotSpd = 0;
+            P.trickScore = 0; P.tricks.clear(); P.trickRot = 0; P.rot = 0;
             P.loopDone = false; P.spinDone = false;
             P.comboWindow = 0; P.floatFrames = 0; P.boostVx = 0;
             jumpCount++;
@@ -286,14 +287,25 @@ function updatePlayer() {
     } else {
         P.airTime++;
 
-        // 体制を戻す（Xキー）
-        if (keys['KeyX'] && Math.abs(P.rotSpd) > 0.2) {
-            P.rotSpd *= 0.80;
+        // ---- トリック回転: 一定速度で trickRot を消費して1周で停止 ----
+        if (P.trickRot !== 0) {
+            const step = P.trickRot > 0
+                ? Math.min( TRICK_ROT_SPEED,  P.trickRot)
+                : Math.max(-TRICK_ROT_SPEED,  P.trickRot);
+            P.rot     += step;
+            P.trickRot -= step;
+            // 完了したら直立に戻す
+            if (Math.abs(P.trickRot) < 0.5) {
+                P.trickRot = 0;
+                P.rot = 0;
+            }
         }
 
-        // 自然な回転減衰
-        P.rotSpd *= ROT_DECAY;
-        if (Math.abs(P.rotSpd) < 0.3) P.rotSpd = 0;
+        // Xキー: トリック回転をキャンセルして直立に戻す
+        if (keys['KeyX'] && P.trickRot !== 0) {
+            P.trickRot = 0;
+            P.rot = 0;
+        }
 
         P.vx += pullX * 0.28;
         const grav = P.floatFrames > 0 ? GRAVITY * 0.35 : GRAVITY;
@@ -308,7 +320,6 @@ function updatePlayer() {
         P.vx = Math.max(-15, Math.min(15, P.vx));
         P.vy = Math.max(-22, Math.min(16, P.vy));
         P.x += P.vx; P.y += P.vy;
-        P.rot += P.rotSpd;
 
         P.peakH = Math.max(P.peakH, WATER_Y - P.y);
 
@@ -320,10 +331,11 @@ function updatePlayer() {
                     burst(P.x, P.y, t.col);
 
                     if (t.rotDir !== 0) {
-                        // フロント/バックロール: 方向を決めて回転開始
-                        // FrontRoll(+1): 進行方向に回転(dir*rotDir > 0 = 前転)
-                        // BackRoll(-1): 進行方向と逆(後転)
-                        P.rotSpd = P.dir * t.rotDir * 10;
+                        // 一定速度で360°ぴったり1周: trickRotに残り角度をセット
+                        // FrontRoll(+1,dir=1): +360 → 時計回り（前転）
+                        // BackRoll(-1,dir=1): -360 → 反時計回り（後転）
+                        P.trickRot = P.dir * t.rotDir * 360;
+                        P.rot = 0; // 開始時に直立からスタート
                         if (t.name === 'FrontRoll' && !P.spinDone) triggerSpin();
                         else addMsg(t.name + '!', P.x, P.y - 38, t.col, 20, 65);
                     } else {
@@ -339,19 +351,14 @@ function updatePlayer() {
 
 // ---- ランディング判定 ----
 function checkLanding() {
-    // 体制角度（0 = 直立, 180 = 逆さま）
-    const normRot   = ((P.rot % 360) + 360) % 360;
-    const bodyAngle = normRot > 180 ? 360 - normRot : normRot; // 0〜180（逆さ具合）
-
     const tooFast  = P.vy > CRASH_VY;
-    const spinning = Math.abs(P.rotSpd) > CRASH_ROTSPD;
-    const upsideDown = bodyAngle > 60; // 60°以上傾いていたらアウト
+    // trickRotが残っている = 回転が完了していない（逆さまの可能性あり）
+    const spinning = Math.abs(P.trickRot) > 45; // 45°以上残っていたらアウト
 
-    if (tooFast || spinning || upsideDown) {
+    if (tooFast || spinning) {
         const reasons = [];
-        if (tooFast)    reasons.push('HARD IMPACT');
-        if (spinning)   reasons.push('STILL SPINNING');
-        if (upsideDown) reasons.push('BODY ANGLE');
+        if (tooFast)  reasons.push('HARD IMPACT');
+        if (spinning) reasons.push('STILL SPINNING');
         crash(reasons.join(' + '));
     } else {
         land();
@@ -364,7 +371,7 @@ function crash(reason) {
     P.y   = WATER_Y;
     P.vy  = -3;
     P.vx *= 0.2;
-    P.rotSpd = P.dir * 18; // ゴロゴロ転がる
+    P.crashRot = P.dir * 18; // ゴロゴロ転がる用
 
     // 大量の水しぶき
     splash(P.x, WATER_Y, 80);
@@ -389,15 +396,15 @@ function crash(reason) {
 
 function updateCrash() {
     P.crashTimer++;
-    P.rot += P.rotSpd;
-    P.rotSpd *= 0.88;
+    P.rot += P.crashRot;
+    P.crashRot *= 0.88;
     P.vx    *= 0.92;
     P.y      = WATER_Y;
 
     if (P.crashTimer > 90) {
         // 復帰
         P.crashing = false; P.crashTimer = 0;
-        P.rot = 0; P.rotSpd = 0;
+        P.rot = 0; P.trickRot = 0; P.crashRot = 0;
         P.onWater = true;
         P.airTime = 0; P.peakH = 0;
         P.tricks.clear(); P.trickScore = 0;
@@ -423,7 +430,7 @@ function land() {
     P.y = WATER_Y; P.vy = 0; P.vx *= 0.62;
     P.onWater = true;
     P.airTime = 0; P.peakH = 0; P.tricks.clear(); P.trickScore = 0;
-    P.rot = 0; P.rotSpd = 0; P.landCd = 50;
+    P.rot = 0; P.trickRot = 0; P.landCd = 50;
     P.loopDone = false; P.spinDone = false; P.boostVx = 0;
 }
 
@@ -641,8 +648,9 @@ function drawFlightStats(){
     // 体制インジケータ
     const normRot  = ((P.rot%360)+360)%360;
     const bodyAngle= normRot>180 ? 360-normRot : normRot;
-    const rotCol   = Math.abs(P.rotSpd) < 1   ? '#00FF88' :
-                     Math.abs(P.rotSpd) < CRASH_ROTSPD ? '#FFD700' : '#FF4444';
+    const rotRemPct = Math.abs(P.trickRot) / 360;
+    const rotCol   = rotRemPct < 0.15 ? '#00FF88' :
+                     rotRemPct < 0.50 ? '#FFD700' : '#FF4444';
 
     // カイト状態
     const kiteCol  = K.edgeState==='collapse' ? '#FF4444' :
@@ -677,8 +685,7 @@ function drawFlightStats(){
     // 落下速度
     drawIndicator(panX+14, indY, '落下', vyCol, vy>0 ? (vyPct*100).toFixed(0)+'%' : 'OK');
     // 体制
-    const rotPct = Math.min(1, Math.abs(P.rotSpd)/CRASH_ROTSPD);
-    drawIndicator(panX+72, indY, '体制', rotCol, Math.abs(P.rotSpd)<0.5 ? 'OK' : rotPct>0.9 ? '危険!' : '注意');
+    drawIndicator(panX+72, indY, '体制', rotCol, rotRemPct < 0.15 ? 'OK' : rotRemPct > 0.5 ? '危険!' : '回転中');
     // カイト
     drawIndicator(panX+130, indY, 'カイト', kiteCol,
         K.edgeState==='collapse'?'崩壊':K.edgeState==='warn'?'注意':'OK');
@@ -787,7 +794,7 @@ function drawHUD(){
             ctx.font='bold 11px Arial';ctx.fillText('▶ COMBO WINDOW!',W-162,163);
         }
         // Xキーヒント（回転中）
-        if(Math.abs(P.rotSpd)>1.5){
+        if(Math.abs(P.trickRot)>45){
             ctx.fillStyle='rgba(255,200,100,0.85)';ctx.font='bold 11px Arial';
             ctx.fillText('[X] 体制を戻す',W-162,175);
         }
