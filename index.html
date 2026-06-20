@@ -101,10 +101,11 @@ const K = {
 const WIND = { base: 8.5 };
 
 // ---- トリック ----
+// rotDir: +1=前方回転(フロント), -1=後方回転(バック), 0=回転なし
 const TRICKS = [
-    { code:'KeyA', name:'Grab',      pts:300, col:'#FFD700', isSpin:false },
-    { code:'KeyS', name:'360°',      pts:500, col:'#00CFFF', isSpin:true  },
-    { code:'KeyD', name:'Back Roll', pts:700, col:'#FF6B6B', isSpin:false },
+    { code:'KeyA', name:'Grab',       pts:300, col:'#FFD700', rotDir: 0 },
+    { code:'KeyS', name:'FrontRoll',  pts:500, col:'#00CFFF', rotDir:+1 },
+    { code:'KeyD', name:'BackRoll',   pts:700, col:'#FF6B6B', rotDir:-1 },
 ];
 
 let ptcls = [], msgs = [];
@@ -252,7 +253,16 @@ function updatePlayer() {
 
         if (keys['Space'] && P.landCd === 0 && Math.abs(P.vx) > 2 && K.power > 2) {
             const popStr = Math.min(7.5, Math.abs(P.vx)*0.40 + K.power*0.35 + 1.5);
-            P.vy = -popStr; P.vx += P.dir * 2;
+
+            // カイト角度でジャンプ方向が変わる
+            // 真上(-90°): uplift=1 → 垂直ビッグエア
+            // 前方(-45°): uplift≈0.7 → ミックス
+            // 低め(-30°): uplift≈0.5 → ポップ横飛び
+            const kiteRad = K.angle * Math.PI / 180;
+            const uplift  = Math.max(0, -Math.sin(kiteRad)); // 0(水平)〜1(真上)
+
+            P.vy  = -(popStr * (0.35 + 0.65 * uplift));      // 上方向成分
+            P.vx += P.dir * popStr * (1 - uplift) * 1.2;     // 横方向成分（真上なら0）
             P.onWater = false;
             P.airTime = 0; P.peakH = 0; P.jumpX = P.x;
             P.trickScore = 0; P.tricks.clear(); P.rotSpd = 0;
@@ -261,6 +271,13 @@ function updatePlayer() {
             jumpCount++;
             splash(P.x, WATER_Y, 32);
             K.targetAngle = -128;
+
+            // ジャンプ種別メッセージ
+            if (uplift > 0.85) {
+                addMsg('↑ BIG AIR!', P.x, WATER_Y - 60, '#FFD700', 18, 55);
+            } else if (uplift < 0.45) {
+                addMsg('→ POP!', P.x, WATER_Y - 60, '#00FF88', 16, 45);
+            }
         }
 
     } else {
@@ -298,9 +315,14 @@ function updatePlayer() {
                     P.tricks.add(t.name);
                     P.trickScore += t.pts;
                     burst(P.x, P.y, t.col);
-                    if (t.isSpin && !P.spinDone) {
-                        P.rotSpd = P.dir * 9;
-                        triggerSpin();
+
+                    if (t.rotDir !== 0) {
+                        // フロント/バックロール: 方向を決めて回転開始
+                        // FrontRoll(+1): 進行方向に回転(dir*rotDir > 0 = 前転)
+                        // BackRoll(-1): 進行方向と逆(後転)
+                        P.rotSpd = P.dir * t.rotDir * 10;
+                        if (t.name === 'FrontRoll' && !P.spinDone) triggerSpin();
+                        else addMsg(t.name + '!', P.x, P.y - 38, t.col, 20, 65);
                     } else {
                         addMsg(t.name + '!', P.x, P.y - 38, t.col, 20, 65);
                     }
