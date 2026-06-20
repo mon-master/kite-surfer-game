@@ -40,7 +40,7 @@ const WATER_Y         = Math.floor(H * 0.70);
 const GRAVITY         = 0.28;
 const PLAYER_SCREEN_X = Math.floor(W * 0.38);
 const LINE_LEN        = 130;
-const PX_TO_M         = 0.20;
+const PX_TO_M         = 0.09;  // 現実スケール: 最高30m台（typhoon級）
 const FPS             = 60;
 
 // ---- 風窓・クラッシュ閾値 ----
@@ -87,8 +87,10 @@ const P = {
 
 // ---- カイト ----
 const K = {
-    angle: -55, targetAngle: -55, prevAngle: -55,
+    angle: -55, targetAngle: -55, prevAngle: -55, prevPrevAngle: -55,
     power: 0,
+    swingPower: 0,    // figure-8パワーサージ
+    swingFlash: 0,    // ビジュアルフラッシュ
     x: 0, y: 0,
     looping: false, loopTimer: 0, loopBase: -90,
     // 風窓状態
@@ -151,10 +153,11 @@ function posMult(angle) {
 
 function updateKite(wind) {
     if (!K.looping) {
-        if (keys['ArrowLeft'])  K.targetAngle = Math.max(-176, K.targetAngle - 2.8);
-        if (keys['ArrowRight']) K.targetAngle = Math.min( -4,  K.targetAngle + 2.8);
-        if (keys['ArrowUp'])    K.targetAngle = Math.max(-176, K.targetAngle - 1.6);
-        if (keys['ArrowDown'])  K.targetAngle = Math.min( -4,  K.targetAngle + 1.6);
+        // キー操作：少し遅めに（2.8→1.7 / 1.6→1.0）
+        if (keys['ArrowLeft'])  K.targetAngle = Math.max(-176, K.targetAngle - 1.7);
+        if (keys['ArrowRight']) K.targetAngle = Math.min( -4,  K.targetAngle + 1.7);
+        if (keys['ArrowUp'])    K.targetAngle = Math.max(-176, K.targetAngle - 1.0);
+        if (keys['ArrowDown'])  K.targetAngle = Math.min( -4,  K.targetAngle + 1.0);
 
         if (keys['KeyQ'] && !P.onWater && !K.looping && P.airTime > 5) {
             K.looping = true; K.loopTimer = 0;
@@ -163,7 +166,8 @@ function updateKite(wind) {
         }
     }
 
-    K.prevAngle = K.angle;
+    K.prevPrevAngle = K.prevAngle;
+    K.prevAngle     = K.angle;
 
     if (K.looping) {
         K.loopTimer++;
@@ -173,8 +177,22 @@ function updateKite(wind) {
             K.angle = K.loopBase; K.targetAngle = K.loopBase;
         }
     } else {
-        K.angle += (K.targetAngle - K.angle) * 0.10;
+        // 追従を遅く（0.10→0.065）
+        K.angle += (K.targetAngle - K.angle) * 0.065;
     }
+
+    // ---- figure-8 パワーサージ検出 ----
+    // パワーゾーン内（posMult > 0.45）で角速度が反転したとき = スイング
+    const vel     = K.angle     - K.prevAngle;
+    const prevVel = K.prevAngle - K.prevPrevAngle;
+    if (vel * prevVel < -0.02 && posMult(K.angle) > 0.45 && !K.looping) {
+        const speed = Math.abs(prevVel);        // 反転直前の速さ
+        const surge = Math.min(7, speed * 5.5); // スイングが速いほど大きい
+        K.swingPower = Math.max(K.swingPower, surge);
+        K.swingFlash = 12;
+    }
+    K.swingPower = Math.max(0, K.swingPower - 0.12);
+    if (K.swingFlash > 0) K.swingFlash--;
 
     // ---- 風窓チェック ----
     // プレイヤーが速く動くほどカイトが風下に流される
@@ -203,8 +221,8 @@ function updateKite(wind) {
 
     // 実効パワー（風窓超えで急落）
     const steerSpd   = Math.abs(K.angle - K.prevAngle);
-    const steerBonus = Math.min(2.8, steerSpd * 1.4);
-    let basePow = wind * posMult(K.angle) + steerBonus;
+    const steerBonus = Math.min(2.0, steerSpd * 1.2);
+    let basePow = wind * posMult(K.angle) + steerBonus + K.swingPower;
     if (K.looping) basePow *= (1.5 + posMult(K.angle) * 1.8);
 
     if (K.edgeState === 'collapse') {
@@ -233,7 +251,7 @@ function updatePlayer() {
             splash(P.x - P.vx*2.5, WATER_Y, 2);
 
         if (keys['Space'] && P.landCd === 0 && Math.abs(P.vx) > 2 && K.power > 2) {
-            const popStr = Math.min(14, Math.abs(P.vx)*0.65 + K.power*0.55 + 3);
+            const popStr = Math.min(10, Math.abs(P.vx)*0.55 + K.power*0.45 + 2);
             P.vy = -popStr; P.vx += P.dir * 2;
             P.onWater = false;
             P.airTime = 0; P.peakH = 0; P.jumpX = P.x;
@@ -509,7 +527,11 @@ function drawKite(){
     const hlCol   = K.edgeState==='collapse' ? '#aaa' :
                     K.edgeState==='warn'     ? '#FFD700' : '#FF8A80';
 
-    if(pm>0.5||K.looping){ctx.shadowColor='#00BFFF';ctx.shadowBlur=8+(K.looping?25:pm*18);}
+    const swingGlow = K.swingFlash > 0 ? K.swingFlash * 3 : 0;
+    if(pm>0.5||K.looping||swingGlow>0){
+        ctx.shadowColor = K.swingFlash>0 ? '#FFFFFF' : '#00BFFF';
+        ctx.shadowBlur  = swingGlow + (K.looping?25:pm*18);
+    }
 
     ctx.fillStyle=kiteCol;
     ctx.beginPath();
