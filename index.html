@@ -256,7 +256,7 @@ function updatePlayer() {
             splash(P.x - P.vx*2.5, WATER_Y, 2);
 
         if (keys['Space'] && P.landCd === 0 && Math.abs(P.vx) > 2 && K.power > 2) {
-            const popStr = Math.min(7.5, Math.abs(P.vx)*0.40 + K.power*0.35 + 1.5);
+            const popStr = Math.min(5.5, Math.abs(P.vx)*0.28 + K.power*0.25 + 1.0);
 
             // カイト角度でジャンプ方向が変わる
             // 真上(-90°): uplift=1 → 垂直ビッグエア
