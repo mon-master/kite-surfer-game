@@ -307,11 +307,11 @@ function updatePlayer() {
         const grav = P.floatFrames > 0 ? GRAVITY * 0.35 : GRAVITY;
         P.vy += pullY * 0.28 + grav;
 
-        // カイトが真上付近(-60°〜-120°)で降下中 → 上向き力で着水速度を緩和
-        // ゼニスリダイレクト: 実際のカイトサーフィンで着水前にカイトを真上に送る技術
+        // カイトが真上付近(-60°〜-120°)で降下中 → 落下速度を直接減衰
+        // カイトの引き力ではなく「傘効果」で速度自体をなだらかに落とす
         if (P.vy > 0) {
             const zenithFactor = Math.max(0, 1 - Math.abs(K.angle + 90) / 35);
-            P.vy -= K.power * zenithFactor * 0.10;
+            P.vy *= (1 - zenithFactor * 0.06);
         }
 
         if (P.boostVx !== 0) {
