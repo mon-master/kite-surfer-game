@@ -488,6 +488,7 @@ function addMsg(text,x,y,color='#fff',size=18,life=70){msgs.push({text,x,y,color
 function draw(){
     ctx.clearRect(0,0,W,H);
     drawSky();
+    drawIslands(); // スクリーン座標で視差描画
     ctx.save(); ctx.translate(-CAM.x,-CAM.y);
     drawWater(); drawWaves(); drawParticles();
     drawKiteLine(); drawKite(); drawPlayer(); drawWorldMsgs();
@@ -501,13 +502,15 @@ function drawSky(){
     const waterScrY=Math.max(0,sy(WATER_Y));
     if(waterScrY>0){
         const g=ctx.createLinearGradient(0,0,0,waterScrY);
-        g.addColorStop(0,'#060d1c');g.addColorStop(.45,'#0d2a5e');g.addColorStop(1,'#1d5598');
+        // 明るい熱帯の青空
+        g.addColorStop(0,'#1a6abf');g.addColorStop(.5,'#3a9bd5');g.addColorStop(1,'#7ecef4');
         ctx.fillStyle=g;ctx.fillRect(0,0,W,waterScrY);
     }
-    ctx.fillStyle='rgba(255,255,255,0.11)';
-    for(let i=0;i<5;i++){
-        let cx=((i*W*.52-CAM.x*.12)%(W*1.1));if(cx<-130)cx+=W*1.1;
-        cloud(cx,40+i*26-CAM.y*.05,50+i*12);
+    // 白い雲
+    ctx.fillStyle='rgba(255,255,255,0.82)';
+    for(let i=0;i<6;i++){
+        let cx=((i*W*.48-CAM.x*.10)%(W*1.2));if(cx<-150)cx+=W*1.2;
+        cloud(cx,35+i*22-CAM.y*.04,45+i*10);
     }
 }
 function cloud(x,y,s){
@@ -515,12 +518,56 @@ function cloud(x,y,s){
     ctx.arc(x,y,s*.50,0,Math.PI*2);ctx.arc(x+s*.45,y-s*.10,s*.38,0,Math.PI*2);
     ctx.arc(x+s*.85,y,s*.32,0,Math.PI*2);ctx.fill();
 }
+
+// ---- 南国の島（スクリーン座標・視差スクロール）----
+function drawIslands(){
+    const ISLS=[
+        {base:500,  w:240, h:75,  col:'#2a7a3b', col2:'#1d5e2b', par:0.22},
+        {base:2400, w:340, h:100, col:'#33934a', col2:'#246e37', par:0.17},
+        {base:-900, w:170, h:55,  col:'#257234', col2:'#1a5426', par:0.28},
+        {base:3900, w:280, h:85,  col:'#3aaa52', col2:'#2a8040', par:0.14},
+        {base:1400, w:120, h:40,  col:'#1e6630', col2:'#154d23', par:0.32},
+    ];
+    const wy=sy(WATER_Y);
+    ISLS.forEach(isl=>{
+        const cx=isl.base - CAM.x*isl.par + W*0.5;
+        // 島本体
+        ctx.fillStyle=isl.col;
+        ctx.beginPath();
+        ctx.moveTo(cx-isl.w/2,wy);
+        ctx.bezierCurveTo(cx-isl.w*.38,wy-isl.h*1.3, cx+isl.w*.38,wy-isl.h*1.3, cx+isl.w/2,wy);
+        ctx.closePath();ctx.fill();
+        // 砂浜
+        ctx.fillStyle='#e8c87a';
+        ctx.beginPath();
+        ctx.ellipse(cx,wy,isl.w*.38,isl.h*.16,0,Math.PI,0);ctx.fill();
+        // ヤシの木
+        palm(cx-isl.w*.08, wy-isl.h*.88, isl.h*.65);
+        if(isl.w>180) palm(cx+isl.w*.16, wy-isl.h*.72, isl.h*.52);
+    });
+}
+function palm(x,y,h){
+    // 幹
+    ctx.strokeStyle='#7a5522';ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(x,y+h);
+    ctx.quadraticCurveTo(x+h*.18,y+h*.5,x,y);ctx.stroke();
+    // 葉
+    const lvs=[[-1,-.4],[1,-.4],[0,-1],[.6,-.7],[-.6,-.7]];
+    ctx.lineWidth=2;
+    lvs.forEach(([dx,dy])=>{
+        ctx.strokeStyle=`hsl(${110+dx*10},65%,${30+dy*10}%)`;
+        ctx.beginPath();ctx.moveTo(x,y);
+        ctx.quadraticCurveTo(x+dx*h*.3,y+dy*h*.35,x+dx*h*.65,y+dy*h*.52);
+        ctx.stroke();
+    });
+}
 function drawWater(){
     const left=CAM.x-200;
     const g=ctx.createLinearGradient(0,WATER_Y,0,WATER_Y+H);
-    g.addColorStop(0,'#1e7fc0');g.addColorStop(.35,'#0e537f');g.addColorStop(1,'#05172a');
+    // 明るいエメラルドグリーン〜ターコイズ
+    g.addColorStop(0,'#12c4c4');g.addColorStop(.25,'#0fa0aa');g.addColorStop(1,'#07607a');
     ctx.fillStyle=g;ctx.fillRect(left,WATER_Y,W+400,H+300);
-    ctx.fillStyle='rgba(180,240,255,0.055)';
+    ctx.fillStyle='rgba(255,255,255,0.09)';
     for(let i=0;i<8;i++){const shx=left+((frame*1.3+i*138)%(W+400));ctx.fillRect(shx,WATER_Y+5,55,2);}
 }
 function drawWaves(){
