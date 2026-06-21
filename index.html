@@ -1,60 +1,252 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <title>Kite Surfer Big Air</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #040a14;
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            min-height: 100vh; font-family: Arial, sans-serif; user-select: none;
-        }
-        canvas { display: block; border-radius: 6px; }
-        #info { color: #446; font-size: 12px; margin-top: 8px; text-align: center; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Kite Surfer Big Air</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:#040a14;
+  font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;
+  user-select:none;-webkit-tap-highlight-color:transparent;}
+#wrap{position:relative;width:100vw;height:100vh;}
+canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block;}
+
+/* ── グラスモーフィズム ── */
+.glass{
+  background:rgba(4,12,28,0.62);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,0.10);border-radius:16px;
+}
+
+/* ── スコアパネル ── */
+#hud-score{position:absolute;top:14px;left:14px;padding:10px 16px;min-width:128px;}
+.lbl{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.38);margin-bottom:3px;}
+#ui-score{font-size:34px;font-weight:900;color:#00FF88;line-height:1;
+  text-shadow:0 0 24px rgba(0,255,136,0.55);}
+#ui-best {font-size:12px;color:#FFD700;margin-top:4px;}
+#ui-jumps{font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px;}
+
+/* ── ウィンドパネル ── */
+#hud-wind{position:absolute;top:14px;right:14px;padding:10px 14px;text-align:right;min-width:108px;}
+#ui-wind {font-size:19px;font-weight:700;color:#88CCFF;}
+#ui-speed{font-size:10px;color:rgba(255,255,255,0.32);margin-top:3px;}
+
+/* ── 飛行中スタッツ ── */
+#flight-stats{
+  position:absolute;top:14px;left:50%;transform:translateX(-50%);
+  padding:8px 22px;text-align:center;
+  display:none;pointer-events:none;
+}
+#flight-stats.show{display:block;}
+.frow{display:flex;gap:20px;align-items:flex-end;}
+.fstat{text-align:center;}
+.fval{font-size:28px;font-weight:900;color:#fff;line-height:1;}
+.fval.h{color:#FFD700;text-shadow:0 0 16px rgba(255,215,0,0.5);}
+.fval.a{color:#88CCFF;}
+.funit{font-size:9px;letter-spacing:1.5px;color:rgba(255,255,255,0.38);
+  text-transform:uppercase;margin-top:3px;}
+
+/* ── パワーバー ── */
+#power-wrap{
+  position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
+  width:min(220px,52vw);padding:8px 14px;
+}
+#power-lbl{font-size:9px;letter-spacing:2.5px;color:rgba(255,255,255,0.32);
+  text-align:center;margin-bottom:6px;text-transform:uppercase;}
+#power-track{height:10px;border-radius:5px;background:rgba(255,255,255,0.08);overflow:hidden;}
+#power-fill{height:100%;width:0%;border-radius:5px;transition:width 0.05s;
+  background:linear-gradient(90deg,#00FF88,#FFD700,#FF4444);}
+#power-fill.loop{background:linear-gradient(90deg,#00BFFF,#fff,#00BFFF);
+  box-shadow:0 0 14px #00BFFF,0 0 28px rgba(0,191,255,0.4);}
+
+/* ── 風窓警告 ── */
+#wind-warn{
+  position:absolute;bottom:58px;left:50%;transform:translateX(-50%);
+  font-size:12px;font-weight:700;letter-spacing:1px;
+  padding:5px 16px;border-radius:20px;white-space:nowrap;
+  display:none;pointer-events:none;
+}
+#wind-warn.show{display:block;}
+#wind-warn.warn   {background:rgba(255,215,0,0.18);color:#FFD700;border:1px solid rgba(255,215,0,0.4);}
+#wind-warn.collapse{background:rgba(255,68,68,0.22);color:#FF4444;border:1px solid rgba(255,68,68,0.45);}
+
+/* ── 結果カード ── */
+#result-card{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-60%) scale(0.85);
+  opacity:0;pointer-events:none;
+  width:min(300px,86vw);padding:22px 18px;text-align:center;
+}
+#result-card.show{animation:cardIn .35s cubic-bezier(.34,1.56,.64,1) forwards;}
+#result-card.hide{animation:cardOut .28s ease-in forwards;}
+@keyframes cardIn {to{opacity:1;transform:translate(-50%,-55%) scale(1);}}
+@keyframes cardOut{to{opacity:0;transform:translate(-50%,-65%) scale(0.85);}}
+#card-title{font-size:26px;font-weight:900;letter-spacing:1px;margin-bottom:4px;}
+#card-title.ok   {color:#00FF88;text-shadow:0 0 24px rgba(0,255,136,0.55);}
+#card-title.crash{color:#FF4444;text-shadow:0 0 24px rgba(255,68,68,0.55);}
+#card-reason{font-size:11px;color:#FF8888;margin-bottom:10px;min-height:14px;}
+.cstats{display:flex;justify-content:space-around;margin:10px 0;}
+.cs{text-align:center;}
+.csv{font-size:26px;font-weight:900;color:#fff;}
+.csv.h{color:#FFD700;}.csv.d{color:#00FF88;}.csv.t{color:#88CCFF;}
+.csl{font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.38);
+  text-transform:uppercase;margin-top:3px;}
+#card-div{height:1px;background:rgba(255,255,255,0.1);margin:10px 0;}
+#card-tricks{font-size:12px;color:#FFD700;min-height:16px;}
+#card-pts{font-size:20px;font-weight:700;color:rgba(255,255,255,0.8);margin-top:6px;}
+#card-best{font-size:12px;color:#FFD700;margin-top:4px;font-weight:700;min-height:16px;}
+
+/* ── タッチボタン (スマホ) ── */
+#touch-r{
+  position:absolute;bottom:18px;right:16px;
+  display:none;flex-direction:column;gap:12px;align-items:center;
+}
+#touch-r.show{display:flex;}
+.tbtn{
+  width:68px;height:68px;border-radius:50%;
+  border:2px solid rgba(255,255,255,0.18);
+  background:rgba(4,12,28,0.72);backdrop-filter:blur(10px);
+  color:#fff;font-size:10px;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:2px;
+  transition:transform .1s,background .1s;touch-action:manipulation;
+}
+.tbtn:active{transform:scale(.90);background:rgba(255,255,255,0.14);}
+.tbtn .ti{font-size:20px;line-height:1;}
+#btn-jump{border-color:rgba(0,255,136,0.5);}
+#btn-jump:active{background:rgba(0,255,136,0.18);}
+#btn-loop{border-color:rgba(0,191,255,0.5);}
+#btn-loop:active{background:rgba(0,191,255,0.18);}
+
+/* ── トリックボタン (スマホ・空中) ── */
+#touch-l{
+  position:absolute;bottom:18px;left:16px;
+  display:none;flex-direction:column;gap:10px;
+}
+#touch-l.show{display:flex;}
+.trbtn{
+  width:58px;height:58px;border-radius:50%;
+  border:1.5px solid rgba(255,255,255,0.14);
+  background:rgba(4,12,28,0.65);backdrop-filter:blur(10px);
+  color:rgba(255,255,255,0.65);font-size:9px;font-weight:700;
+  letter-spacing:.5px;text-transform:uppercase;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:1px;transition:transform .1s;
+  touch-action:manipulation;
+}
+.trbtn:active{transform:scale(.88);}
+.trbtn .ti{font-size:16px;}
+
+/* ── イントロヒント ── */
+#hint{
+  position:absolute;bottom:72px;left:50%;transform:translateX(-50%);
+  font-size:12px;color:rgba(255,255,255,0.45);text-align:center;
+  pointer-events:none;white-space:nowrap;transition:opacity .6s;
+}
+#hint.hide{opacity:0;}
+</style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="info">
-    ← → カイト操作 &nbsp;|&nbsp; ↑↓ 高さ調整 &nbsp;|&nbsp; SPACE ジャンプ &nbsp;|&nbsp;
-    Q カイトループ &nbsp;|&nbsp; S 360° &nbsp;|&nbsp; A Grab &nbsp;|&nbsp; D Back Roll &nbsp;|&nbsp;
-    X 体制を戻す
+<div id="wrap">
+  <canvas id="c"></canvas>
+
+  <!-- スコア -->
+  <div id="hud-score" class="glass">
+    <div class="lbl">Score</div>
+    <div id="ui-score">0</div>
+    <div id="ui-best">BEST: 0</div>
+    <div id="ui-jumps">JUMPS: 0</div>
+  </div>
+
+  <!-- ウィンド -->
+  <div id="hud-wind" class="glass">
+    <div class="lbl">Wind</div>
+    <div id="ui-wind">-- kn</div>
+    <div id="ui-speed">SPD: --</div>
+  </div>
+
+  <!-- 飛行中スタッツ -->
+  <div id="flight-stats" class="glass">
+    <div class="frow">
+      <div class="fstat"><div id="fs-h" class="fval h">0</div><div class="funit">Height m</div></div>
+      <div class="fstat"><div id="fs-a" class="fval a">0.0</div><div class="funit">Air s</div></div>
+    </div>
+  </div>
+
+  <!-- パワーバー -->
+  <div id="power-wrap" class="glass">
+    <div id="power-lbl">Kite Power</div>
+    <div id="power-track"><div id="power-fill"></div></div>
+  </div>
+
+  <!-- 風窓警告 -->
+  <div id="wind-warn">⚠ KITE EDGE</div>
+
+  <!-- 結果カード -->
+  <div id="result-card" class="glass">
+    <div id="card-title">LANDED!</div>
+    <div id="card-reason"></div>
+    <div class="cstats">
+      <div class="cs"><div id="cs-h" class="csv h">0</div><div class="csl">Height m</div></div>
+      <div class="cs"><div id="cs-d" class="csv d">0</div><div class="csl">Dist m</div></div>
+      <div class="cs"><div id="cs-t" class="csv t">0</div><div class="csl">Air s</div></div>
+    </div>
+    <div id="card-div"></div>
+    <div id="card-tricks"></div>
+    <div id="card-pts">+0 pts</div>
+    <div id="card-best"></div>
+  </div>
+
+  <!-- タッチボタン右 -->
+  <div id="touch-r">
+    <button id="btn-loop" class="tbtn"><span class="ti">🔄</span>LOOP</button>
+    <button id="btn-jump" class="tbtn"><span class="ti">🚀</span>JUMP</button>
+  </div>
+
+  <!-- タッチボタン左(トリック) -->
+  <div id="touch-l">
+    <button id="btn-front" class="trbtn"><span class="ti">↻</span>FRONT</button>
+    <button id="btn-back"  class="trbtn"><span class="ti">↺</span>BACK</button>
+  </div>
+
+  <!-- ヒント -->
+  <div id="hint">← → でカイト操作 → SPACE でジャンプ</div>
 </div>
 <script>
 // ============================================================
-//  KITE SURFER BIG AIR  v4.0
-//  - 風窓超えでカイトパワー急落
-//  - 落下速度・体制でクラッシュ判定
-//  - 回転残留・逆さまランディング失敗
+//  KITE SURFER BIG AIR  v5.0
+//  スマホ・PC両対応 / グラスモーフィズムUI
 // ============================================================
 
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
-const W = Math.min(900, window.innerWidth  - 10);
-const H = Math.min(540, window.innerHeight - 60);
-canvas.width = W; canvas.height = H;
 
-const WATER_Y         = Math.floor(H * 0.70);
+// ── 画面サイズ（フルスクリーン）──
+const W = canvas.width  = window.innerWidth;
+const H = canvas.height = window.innerHeight;
+
+const IS_MOBILE = ('ontouchstart' in window) || window.innerWidth < 700;
+
+const WATER_Y         = Math.floor(H * 0.68);
 const GRAVITY         = 0.28;
-const PLAYER_SCREEN_X = Math.floor(W * 0.38);
-const LINE_LEN        = 130;
-const PX_TO_M         = 0.045; // 現実スケール: 通常5〜15m、最高25m前後
+const PLAYER_SCREEN_X = IS_MOBILE ? Math.floor(W * 0.50) : Math.floor(W * 0.38);
+const LINE_LEN        = Math.floor(Math.min(W, H) * 0.20);
+const PX_TO_M         = 0.045;
 const FPS             = 60;
 
-// ---- 風窓・クラッシュ閾値 ----
-const WIND_EDGE_WARN     = -22;   // これより前方だと黄色警告
-const WIND_EDGE_COLLAPSE = -10;   // これより前方でパワー崩壊
-const CRASH_VY           = 9.5;  // 落下速度クラッシュ閾値（px/frame）
-const TRICK_ROT_SPEED    = 11;   // トリック回転速度（deg/frame）→ 360÷11≈33フレームで1周
+const WIND_EDGE_WARN     = -22;
+const WIND_EDGE_COLLAPSE = -10;
+const CRASH_VY           = 9.5;
+const TRICK_ROT_SPEED    = 11;
 
-// ---- 入力 ----
+// ── 入力 ──
 const keys = {};
 window.addEventListener('keydown', e => { keys[e.code] = true;  e.preventDefault(); });
 window.addEventListener('keyup',   e => { keys[e.code] = false; });
 
-// ---- カメラ ----
+// ── カメラ ──
 const CAM = { x: 0, y: 0 };
 function updateCamera() {
     CAM.x = P.x - PLAYER_SCREEN_X;
@@ -64,11 +256,11 @@ function updateCamera() {
 const sx = wx => wx - CAM.x;
 const sy = wy => wy - CAM.y;
 
-// ---- ゲーム状態 ----
+// ── ゲーム変数 ──
 let score = 0, best = 0, jumpCount = 0, frame = 0;
 let resultCard = null;
 
-// ---- プレイヤー ----
+// ── プレイヤー ──
 const P = {
     x: W * 0.8, y: WATER_Y,
     vx: 5, vy: 0,
@@ -78,45 +270,102 @@ const P = {
     trickScore: 0, tricks: new Set(),
     landCd: 0,
     rot: 0,
-    trickRot: 0,   // 残り回転量（度）: 正=前転方向, 負=後転方向
-    crashRot: 0,   // クラッシュ時のみ使うゴロゴロ回転
+    trickRot: 0,
+    crashRot: 0,
     loopDone: false, spinDone: false,
     comboWindow: 0, floatFrames: 0, boostVx: 0,
-    // クラッシュ関連
     crashing: false, crashTimer: 0,
 };
 
-// ---- カイト ----
+// ── カイト ──
 const K = {
     angle: -55, targetAngle: -55, prevAngle: -55, prevPrevAngle: -55,
     power: 0,
-    swingPower: 0,    // figure-8パワーサージ
-    swingFlash: 0,    // ビジュアルフラッシュ
+    swingPower: 0, swingFlash: 0,
     x: 0, y: 0,
     looping: false, loopTimer: 0, loopBase: -90,
-    // 風窓状態
-    edgeState: 'ok',   // 'ok' | 'warn' | 'collapse'
-    shakeAmt: 0,
+    edgeState: 'ok', shakeAmt: 0,
 };
 
 const WIND = { base: 8.5 };
 
-// ---- トリック ----
-// rotDir: +1=前方回転(フロント), -1=後方回転(バック), 0=回転なし
+// ── トリック定義 ──
 const TRICKS = [
-    { code:'KeyA', name:'Grab',       pts: 30, col:'#FFD700', rotDir: 0 },
-    { code:'KeyS', name:'FrontRoll',  pts: 50, col:'#00CFFF', rotDir:+1 },
-    { code:'KeyD', name:'BackRoll',   pts: 70, col:'#FF6B6B', rotDir:-1 },
+    { code:'KeyA', name:'Grab',      pts: 30, col:'#FFD700', rotDir: 0 },
+    { code:'KeyS', name:'FrontRoll', pts: 50, col:'#00CFFF', rotDir:+1 },
+    { code:'KeyD', name:'BackRoll',  pts: 70, col:'#FF6B6B', rotDir:-1 },
 ];
 
 let ptcls = [], msgs = [];
 
-// ---- 波 ----
-const WAVES = Array.from({ length: 22 }, () => ({
-    worldX: Math.random() * W * 2,
+// ── 波 ──
+const WAVES = Array.from({length:22},()=>({
+    worldX: Math.random()*W*2,
     amp: 7+Math.random()*14, len: 65+Math.random()*90,
     spd: 0.9+Math.random()*1.8, ph: Math.random()*Math.PI*2,
 }));
+
+// ============================================================
+//  タッチ操作
+// ============================================================
+if (IS_MOBILE) {
+    document.getElementById('touch-r').classList.add('show');
+    document.getElementById('hint').textContent = 'タッチでカイト操作 → JUMP でジャンプ';
+
+    // カイト操作: 画面タッチ → プレイヤーからの角度
+    canvas.addEventListener('touchstart', handleKiteTouch, {passive:false});
+    canvas.addEventListener('touchmove',  handleKiteTouch, {passive:false});
+
+    function handleKiteTouch(e) {
+        e.preventDefault();
+        const t = e.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        const tx = (t.clientX - rect.left)  * (W / rect.width);
+        const ty = (t.clientY - rect.top)   * (H / rect.height);
+        // プレイヤーのスクリーン座標
+        const psx = PLAYER_SCREEN_X;
+        const psy = sy(P.y);
+        // ボタンエリア（下部20%）は無視
+        if (ty > H * 0.80) return;
+        const angle = Math.atan2(ty - psy, tx - psx) * 180 / Math.PI;
+        // 有効範囲: 上半球 (-176〜-4)
+        if (angle > -4 && angle < 0) return;
+        if (angle >= 0) return; // 下半分は無視
+        K.targetAngle = Math.max(-176, Math.min(-4, angle));
+    }
+
+    // JUMP ボタン
+    document.getElementById('btn-jump').addEventListener('touchstart', e => {
+        e.preventDefault(); keys['Space'] = true;
+    }, {passive:false});
+    document.getElementById('btn-jump').addEventListener('touchend', e => {
+        e.preventDefault(); keys['Space'] = false;
+    }, {passive:false});
+
+    // LOOP ボタン
+    document.getElementById('btn-loop').addEventListener('touchstart', e => {
+        e.preventDefault(); keys['KeyQ'] = true;
+    }, {passive:false});
+    document.getElementById('btn-loop').addEventListener('touchend', e => {
+        e.preventDefault(); keys['KeyQ'] = false;
+    }, {passive:false});
+
+    // FrontRoll ボタン
+    document.getElementById('btn-front').addEventListener('touchstart', e => {
+        e.preventDefault(); keys['KeyS'] = true;
+    }, {passive:false});
+    document.getElementById('btn-front').addEventListener('touchend', e => {
+        e.preventDefault(); keys['KeyS'] = false;
+    }, {passive:false});
+
+    // BackRoll ボタン
+    document.getElementById('btn-back').addEventListener('touchstart', e => {
+        e.preventDefault(); keys['KeyD'] = true;
+    }, {passive:false});
+    document.getElementById('btn-back').addEventListener('touchend', e => {
+        e.preventDefault(); keys['KeyD'] = false;
+    }, {passive:false});
+}
 
 // ============================================================
 //  UPDATE
@@ -141,13 +390,16 @@ function update() {
 
     ptcls = ptcls.filter(p => { p.x+=p.vx; p.y+=p.vy; p.vy+=0.13; p.life--; return p.life>0; });
     msgs   = msgs.filter(m  => { m.y-=0.6;  m.life--; return m.life>0; });
-    if (P.landCd > 0) P.landCd--;
+    if (P.landCd > 0)      P.landCd--;
     if (P.comboWindow > 0) P.comboWindow--;
     if (P.floatFrames > 0) P.floatFrames--;
-    if (resultCard && --resultCard.life <= 0) resultCard = null;
+    if (resultCard && --resultCard.life <= 0) {
+        document.getElementById('result-card').classList.remove('show');
+        document.getElementById('result-card').classList.add('hide');
+        resultCard = null;
+    }
 }
 
-// ---- 風窓パワー倍率 ----
 function posMult(angle) {
     const d = angle - (-65);
     return Math.max(0.12, Math.exp(-(d*d)/(2*58*58)));
@@ -155,13 +407,11 @@ function posMult(angle) {
 
 function updateKite(wind) {
     if (!K.looping) {
-        // キー操作：少し遅めに（2.8→1.7 / 1.6→1.0）
         if (keys['ArrowLeft'])  K.targetAngle = Math.max(-176, K.targetAngle - 1.7);
         if (keys['ArrowRight']) K.targetAngle = Math.min( -4,  K.targetAngle + 1.7);
         if (keys['ArrowUp'])    K.targetAngle = Math.max(-176, K.targetAngle - 1.0);
         if (keys['ArrowDown'])  K.targetAngle = Math.min( -4,  K.targetAngle + 1.0);
 
-        // ループは1ジャンプに1回のみ（loopDoneで制限）
         if (keys['KeyQ'] && !P.onWater && !K.looping && !P.loopDone && P.airTime > 5) {
             K.looping = true; K.loopTimer = 0;
             K.loopBase = K.angle;
@@ -177,37 +427,32 @@ function updateKite(wind) {
         K.angle = K.loopBase + Math.sin(K.loopTimer / 45 * Math.PI * 2) * 90;
         if (K.loopTimer >= 45) {
             K.looping = false; K.loopTimer = 0;
-            // ループ後はカイトを安全角度に戻す（風窓端に行きすぎない）
             K.angle = Math.min(-35, K.loopBase);
             K.targetAngle = Math.min(-35, K.loopBase);
         }
     } else {
-        // 追従を遅く（0.10→0.065）
         K.angle += (K.targetAngle - K.angle) * 0.065;
     }
 
-    // ---- figure-8 パワーサージ検出 ----
-    // パワーゾーン内（posMult > 0.45）で角速度が反転したとき = スイング
+    // figure-8 パワーサージ
     const vel     = K.angle     - K.prevAngle;
     const prevVel = K.prevAngle - K.prevPrevAngle;
     if (vel * prevVel < -0.02 && posMult(K.angle) > 0.45 && !K.looping) {
-        const speed = Math.abs(prevVel);        // 反転直前の速さ
-        const surge = Math.min(7, speed * 5.5); // スイングが速いほど大きい
+        const speed = Math.abs(prevVel);
+        const surge = Math.min(7, speed * 5.5);
         K.swingPower = Math.max(K.swingPower, surge);
         K.swingFlash = 12;
     }
     K.swingPower = Math.max(0, K.swingPower - 0.12);
     if (K.swingFlash > 0) K.swingFlash--;
 
-    // ---- 風窓チェック ----
-    // プレイヤーが速く動くほどカイトが風下に流される
-    const downwindPush = P.vx * P.dir * 0.12; // 速度に比例して風下方向に押し出す
+    // 風窓チェック
+    const downwindPush = P.vx * P.dir * 0.12;
     if (!K.looping) K.angle += downwindPush;
 
     if (K.angle > WIND_EDGE_COLLAPSE) {
         K.edgeState = 'collapse';
         K.shakeAmt  = Math.min(8, K.shakeAmt + 0.5);
-        // カイトが風窓外に飛び出すほど角度が前方に流れる
         K.angle += (0 - K.angle) * 0.04;
         K.targetAngle = Math.min(K.targetAngle, WIND_EDGE_WARN);
     } else if (K.angle > WIND_EDGE_WARN) {
@@ -224,14 +469,12 @@ function updateKite(wind) {
     K.x = P.x + Math.cos(rad) * LINE_LEN + shakeX;
     K.y = P.y + Math.sin(rad) * LINE_LEN - 10 + shakeY;
 
-    // 実効パワー（風窓超えで急落）
     const steerSpd   = Math.abs(K.angle - K.prevAngle);
     const steerBonus = Math.min(2.0, steerSpd * 1.2);
     let basePow = wind * posMult(K.angle) + steerBonus + K.swingPower;
     if (K.looping) basePow *= (1.5 + posMult(K.angle) * 1.8);
 
     if (K.edgeState === 'collapse') {
-        // パワーゾーン崩壊 ──  急速にゼロへ
         basePow *= Math.max(0, (WIND_EDGE_COLLAPSE - K.angle) / 5);
     } else if (K.edgeState === 'warn') {
         basePow *= 0.5 + 0.5 * ((WIND_EDGE_WARN - K.angle) / (WIND_EDGE_WARN - WIND_EDGE_COLLAPSE));
@@ -257,16 +500,10 @@ function updatePlayer() {
 
         if (keys['Space'] && P.landCd === 0 && Math.abs(P.vx) > 2 && K.power > 2) {
             const popStr = Math.min(5.5, Math.abs(P.vx)*0.28 + K.power*0.25 + 1.0);
-
-            // カイト角度でジャンプ方向が変わる
-            // 真上(-90°): uplift=1 → 垂直ビッグエア
-            // 前方(-45°): uplift≈0.7 → ミックス
-            // 低め(-30°): uplift≈0.5 → ポップ横飛び
             const kiteRad = K.angle * Math.PI / 180;
-            const uplift  = Math.max(0, -Math.sin(kiteRad)); // 0(水平)〜1(真上)
-
-            P.vy  = -(popStr * (0.35 + 0.65 * uplift));      // 上方向成分
-            P.vx += P.dir * popStr * (1 - uplift) * 0.5;     // 横方向成分（1.2→0.5に削減）
+            const uplift  = Math.max(0, -Math.sin(kiteRad));
+            P.vy  = -(popStr * (0.35 + 0.65 * uplift));
+            P.vx += P.dir * popStr * (1 - uplift) * 0.5;
             P.onWater = false;
             P.airTime = 0; P.peakH = 0; P.jumpX = P.x;
             P.trickScore = 0; P.tricks.clear(); P.trickRot = 0; P.rot = 0;
@@ -275,7 +512,6 @@ function updatePlayer() {
             jumpCount++;
             splash(P.x, WATER_Y, 32);
 
-            // ジャンプ種別メッセージ
             if (uplift > 0.85) {
                 addMsg('↑ BIG AIR!', P.x, WATER_Y - 60, '#FFD700', 18, 55);
             } else if (uplift < 0.45) {
@@ -286,7 +522,7 @@ function updatePlayer() {
     } else {
         P.airTime++;
 
-        // ---- トリック回転: 一定速度で trickRot を消費、0になったら自然停止 ----
+        // トリック回転: 一定速度で trickRot を消費
         if (P.trickRot !== 0) {
             const step = P.trickRot > 0
                 ? Math.min( TRICK_ROT_SPEED,  P.trickRot)
@@ -294,21 +530,17 @@ function updatePlayer() {
             P.rot      += step;
             P.trickRot -= step;
             if (Math.abs(P.trickRot) < 0.5) P.trickRot = 0;
-            // ※ P.rot = 0 に強制スナップしない → 自然に止まる
         }
 
-        // Xキー: トリック回転をキャンセル（rot はそのまま保持）
-        if (keys['KeyX'] && P.trickRot !== 0) {
-            P.trickRot = 0;
-        }
+        // Xキー: トリック回転キャンセル
+        if (keys['KeyX'] && P.trickRot !== 0) P.trickRot = 0;
 
         P.vx += pullX * 0.28;
-        P.vx *= 0.982; // 空中水平抵抗（飛距離を抑制）
+        P.vx *= 0.982;
         const grav = P.floatFrames > 0 ? GRAVITY * 0.35 : GRAVITY;
         P.vy += pullY * 0.28 + grav;
 
-        // カイトが真上付近(-60°〜-120°)で降下中 → 落下速度を直接減衰
-        // カイトの引き力ではなく「傘効果」で速度自体をなだらかに落とす
+        // ゼニス（真上）で降下中 → 落下速度を減衰
         if (P.vy > 0) {
             const zenithFactor = Math.max(0, 1 - Math.abs(K.angle + 90) / 35);
             P.vy *= (1 - zenithFactor * 0.06);
@@ -334,11 +566,8 @@ function updatePlayer() {
                     burst(P.x, P.y, t.col);
 
                     if (t.rotDir !== 0) {
-                        // 一定速度で360°ぴったり1周: trickRotに残り角度をセット
-                        // FrontRoll(+1,dir=1): +360 → 時計回り（前転）
-                        // BackRoll(-1,dir=1): -360 → 反時計回り（後転）
                         P.trickRot = P.dir * t.rotDir * 360;
-                        P.rot = 0; // 開始時に直立からスタート
+                        P.rot = 0;
                         if (t.name === 'FrontRoll' && !P.spinDone) triggerSpin();
                         else addMsg(t.name + '!', P.x, P.y - 38, t.col, 20, 65);
                     } else {
@@ -352,11 +581,9 @@ function updatePlayer() {
     }
 }
 
-// ---- ランディング判定 ----
 function checkLanding() {
-    const tooFast  = P.vy > CRASH_VY;
-    // trickRotが残っている = 回転が完了していない（逆さまの可能性あり）
-    const spinning = Math.abs(P.trickRot) > 45; // 45°以上残っていたらアウト
+    const tooFast = P.vy > CRASH_VY;
+    const spinning = Math.abs(P.trickRot) > 45;
 
     if (tooFast || spinning) {
         const reasons = [];
@@ -374,27 +601,25 @@ function crash(reason) {
     P.y   = WATER_Y;
     P.vy  = -3;
     P.vx *= 0.2;
-    P.crashRot = P.dir * 18; // ゴロゴロ転がる用
+    P.crashRot = P.dir * 18;
 
-    // 大量の水しぶき
     splash(P.x, WATER_Y, 80);
     for (let i = 0; i < 3; i++)
-        setTimeout(() => splash(P.x + (Math.random()-0.5)*40, WATER_Y, 20), i*150);
+        setTimeout(() => splash(P.x + (Math.random()-.5)*40, WATER_Y, 20), i*150);
 
     addMsg('WIPEOUT!', P.x, WATER_Y - 70, '#FF4444', 30, 130);
     addMsg(reason, P.x, WATER_Y - 100, '#FF8888', 14, 110);
 
-    // 部分スコア（高さと滞空のみ、トリックなし）
     const pts = Math.floor(P.peakH * 0.12 + P.airTime * 0.08);
     score += pts;
 
-    resultCard = {
+    showResultCard({
         heightM:  Math.floor(P.peakH * PX_TO_M),
         distM:    Math.floor(Math.abs(P.x - P.jumpX) * PX_TO_M * 0.6),
         airtimeS: (P.airTime / FPS).toFixed(1),
         pts, tricks: [], crashed: true, reason,
         life: 210, maxLife: 210,
-    };
+    });
 }
 
 function updateCrash() {
@@ -405,7 +630,6 @@ function updateCrash() {
     P.y      = WATER_Y;
 
     if (P.crashTimer > 90) {
-        // 復帰
         P.crashing = false; P.crashTimer = 0;
         P.rot = 0; P.trickRot = 0; P.crashRot = 0;
         P.onWater = true;
@@ -422,12 +646,12 @@ function land() {
     const pts      = Math.floor(P.peakH * 0.35 + P.airTime * 0.18 + P.trickScore);
     score += pts; if (score > best) best = score;
 
-    resultCard = {
+    showResultCard({
         heightM, distM, airtimeS, pts,
         tricks: Array.from(P.tricks),
         crashed: false,
         life: 180, maxLife: 180,
-    };
+    });
 
     splash(P.x, WATER_Y, 40);
     P.y = WATER_Y; P.vy = 0; P.vx *= 0.62;
@@ -437,26 +661,20 @@ function land() {
     P.loopDone = false; P.spinDone = false; P.boostVx = 0;
 }
 
-// ---- トリックタイミング ----
+// ── トリック ──
 function triggerKiteLoop() {
     const early = P.airTime < 22;
-    if (early) {
-        P.vy -= 2.0;
-        burst(P.x, P.y, '#00BFFF');
-        addMsg('KITE LOOP! ↑ HEIGHT', P.x, P.y-50, '#00BFFF', 22, 75);
-    } else {
-        P.boostVx = P.dir * 3;
-        burst(P.x, P.y, '#00BFFF');
-        addMsg('KITE LOOP! → DISTANCE', P.x, P.y-50, '#00BFFF', 22, 75);
-    }
+    if (early) { P.vy -= 2.0; addMsg('KITE LOOP! ↑', P.x, P.y-50, '#00BFFF', 22, 75); }
+    else        { P.boostVx = P.dir*3; addMsg('KITE LOOP! →', P.x, P.y-50, '#00BFFF', 22, 75); }
+    burst(P.x, P.y, '#00BFFF');
     P.trickScore += 80; P.loopDone = true;
     if (P.comboWindow > 0 || P.spinDone) triggerCombo();
     else P.comboWindow = 40;
 }
 function triggerSpin() {
     const early = P.airTime < 22;
-    if (early) { P.vy -= 0.8; P.floatFrames = 40; addMsg('360° ↑ FLOAT!', P.x, P.y-50, '#00CFFF', 20, 70); }
-    else        { P.boostVx = P.dir*2;              addMsg('360° → SEND IT!', P.x, P.y-50, '#00CFFF', 20, 70); }
+    if (early) { P.vy -= 0.8; P.floatFrames = 40; addMsg('ROLL ↑ FLOAT!', P.x, P.y-50, '#00CFFF', 20, 70); }
+    else        { P.boostVx = P.dir*2; addMsg('ROLL → SEND IT!', P.x, P.y-50, '#00CFFF', 20, 70); }
     P.spinDone = true;
     if (P.comboWindow > 0 || P.loopDone) triggerCombo();
     else P.comboWindow = 40;
@@ -464,11 +682,11 @@ function triggerSpin() {
 function triggerCombo() {
     P.vy -= 1.0; P.boostVx += P.dir*1.5; P.trickScore += 100;
     burst(P.x, P.y-20, '#FFD700'); burst(P.x, P.y+10, '#FF6B6B');
-    addMsg('🔥 COMBO BOOST! +1000', P.x, P.y-80, '#FFD700', 26, 100);
+    addMsg('🔥 COMBO!', P.x, P.y-80, '#FFD700', 26, 100);
     P.comboWindow = 0;
 }
 
-// ---- パーティクル / メッセージ ----
+// ── パーティクル ──
 function splash(x,y,n){
     for(let i=0;i<n;i++)
         ptcls.push({x,y,vx:(Math.random()-.5)*5.5,vy:-Math.random()*6,
@@ -480,101 +698,171 @@ function burst(x,y,hex){
         ptcls.push({x,y,vx:Math.cos(a)*(2.5+Math.random()*2),vy:Math.sin(a)*(2.5+Math.random()*2),
             life:38,maxLife:38,col:`rgba(${r},${g},${b},`});}
 }
-function addMsg(text,x,y,color='#fff',size=18,life=70){msgs.push({text,x,y,color,size,life,maxLife:life});}
+function addMsg(text,x,y,color='#fff',size=18,life=70){
+    msgs.push({text,x,y,color,size,life,maxLife:life});
+}
 
 // ============================================================
-//  DRAW
+//  HTML UI 更新
+// ============================================================
+let _lastResultCard = null;
+let _resultVisible  = false;
+
+function showResultCard(rc) {
+    resultCard = rc;
+    const el    = document.getElementById('result-card');
+    const isOk  = !rc.crashed;
+    document.getElementById('card-title').textContent  = isOk ? 'LANDED!' : 'WIPEOUT!';
+    document.getElementById('card-title').className    = isOk ? 'ok' : 'crash';
+    document.getElementById('card-reason').textContent = rc.reason || '';
+    document.getElementById('cs-h').textContent  = rc.heightM;
+    document.getElementById('cs-d').textContent  = rc.distM;
+    document.getElementById('cs-t').textContent  = rc.airtimeS;
+    document.getElementById('card-tricks').textContent = rc.tricks.join(' / ');
+    document.getElementById('card-pts').textContent    = '+' + rc.pts + ' pts';
+    document.getElementById('card-best').textContent   = (!rc.crashed && score === best && best > 0) ? '★ NEW BEST!' : '';
+    el.classList.remove('hide');
+    // アニメーションリセット
+    el.classList.remove('show');
+    void el.offsetWidth; // reflow
+    el.classList.add('show');
+}
+
+function updateUI() {
+    const wind = (WIND.base + Math.sin(frame * 0.009) * 1.5).toFixed(1);
+    const spd  = Math.abs(P.vx).toFixed(1);
+
+    document.getElementById('ui-score').textContent = score;
+    document.getElementById('ui-best').textContent  = 'BEST: ' + best;
+    document.getElementById('ui-jumps').textContent = 'JUMPS: ' + jumpCount;
+    document.getElementById('ui-wind').textContent  = wind + ' kn →';
+    document.getElementById('ui-speed').textContent = 'SPD: ' + spd;
+
+    // パワーバー
+    const pct  = Math.min(100, K.power / 10 * 100);
+    const fill = document.getElementById('power-fill');
+    fill.style.width = pct + '%';
+    if (K.looping) fill.classList.add('loop');
+    else           fill.classList.remove('loop');
+
+    // 飛行中スタッツ
+    const fs = document.getElementById('flight-stats');
+    if (!P.onWater || P.crashing) {
+        fs.classList.add('show');
+        const hm = P.crashing ? Math.floor(P.peakH*PX_TO_M)
+                               : Math.max(0, Math.floor((WATER_Y-P.y)*PX_TO_M));
+        document.getElementById('fs-h').textContent = hm;
+        document.getElementById('fs-a').textContent = (P.airTime/FPS).toFixed(1);
+    } else {
+        fs.classList.remove('show');
+    }
+
+    // 風窓警告
+    const ww = document.getElementById('wind-warn');
+    if (K.edgeState !== 'ok') {
+        ww.classList.add('show');
+        ww.className = 'show ' + K.edgeState;
+        ww.textContent = K.edgeState === 'collapse'
+            ? '⚠ KITE EDGE – POWER LOST!'
+            : '⚠ KITE EDGE – STEER BACK!';
+    } else {
+        ww.classList.remove('show');
+    }
+
+    // スマホ: 空中でトリックボタン表示
+    if (IS_MOBILE) {
+        const tl = document.getElementById('touch-l');
+        if (!P.onWater && P.airTime > 8) tl.classList.add('show');
+        else                               tl.classList.remove('show');
+    }
+
+    // ヒント非表示
+    if (jumpCount > 0 || frame > 360) {
+        document.getElementById('hint').classList.add('hide');
+    }
+}
+
+// ============================================================
+//  DRAW (Canvas: ゲーム本体のみ)
 // ============================================================
 function draw(){
     ctx.clearRect(0,0,W,H);
     drawSky();
-    drawIslands(); // スクリーン座標で視差描画
+    drawIslands();
     ctx.save(); ctx.translate(-CAM.x,-CAM.y);
     drawWater(); drawWaves(); drawParticles();
     drawKiteLine(); drawKite(); drawPlayer(); drawWorldMsgs();
     ctx.restore();
-    drawHUD();
-    if (!P.onWater || P.crashing) drawFlightStats();
-    if (resultCard) drawResultCard();
 }
 
 function drawSky(){
-    const waterScrY=Math.max(0,sy(WATER_Y));
-    if(waterScrY>0){
-        const g=ctx.createLinearGradient(0,0,0,waterScrY);
-        // 明るい熱帯の青空
-        g.addColorStop(0,'#1a6abf');g.addColorStop(.5,'#3a9bd5');g.addColorStop(1,'#7ecef4');
-        ctx.fillStyle=g;ctx.fillRect(0,0,W,waterScrY);
+    const waterScrY = Math.max(0, sy(WATER_Y));
+    if (waterScrY > 0) {
+        const g = ctx.createLinearGradient(0,0,0,waterScrY);
+        g.addColorStop(0,'#1a6abf'); g.addColorStop(.5,'#3a9bd5'); g.addColorStop(1,'#7ecef4');
+        ctx.fillStyle = g; ctx.fillRect(0,0,W,waterScrY);
     }
-    // 白い雲
-    ctx.fillStyle='rgba(255,255,255,0.82)';
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
     for(let i=0;i<6;i++){
-        let cx=((i*W*.48-CAM.x*.10)%(W*1.2));if(cx<-150)cx+=W*1.2;
-        cloud(cx,35+i*22-CAM.y*.04,45+i*10);
+        let cx=((i*W*.48-CAM.x*.10)%(W*1.2)); if(cx<-150) cx+=W*1.2;
+        cloud(cx, 35+i*22-CAM.y*.04, 45+i*10);
     }
 }
 function cloud(x,y,s){
     ctx.beginPath();
-    ctx.arc(x,y,s*.50,0,Math.PI*2);ctx.arc(x+s*.45,y-s*.10,s*.38,0,Math.PI*2);
-    ctx.arc(x+s*.85,y,s*.32,0,Math.PI*2);ctx.fill();
+    ctx.arc(x,y,s*.50,0,Math.PI*2); ctx.arc(x+s*.45,y-s*.10,s*.38,0,Math.PI*2);
+    ctx.arc(x+s*.85,y,s*.32,0,Math.PI*2); ctx.fill();
 }
 
-// ---- 南国の島（スクリーン座標・視差スクロール）----
 function drawIslands(){
     const ISLS=[
-        {base:500,  w:240, h:75,  col:'#2a7a3b', col2:'#1d5e2b', par:0.22},
-        {base:2400, w:340, h:100, col:'#33934a', col2:'#246e37', par:0.17},
-        {base:-900, w:170, h:55,  col:'#257234', col2:'#1a5426', par:0.28},
-        {base:3900, w:280, h:85,  col:'#3aaa52', col2:'#2a8040', par:0.14},
-        {base:1400, w:120, h:40,  col:'#1e6630', col2:'#154d23', par:0.32},
+        {base:500,  w:240,h:75, col:'#2a7a3b',par:0.22},
+        {base:2400, w:340,h:100,col:'#33934a',par:0.17},
+        {base:-900, w:170,h:55, col:'#257234',par:0.28},
+        {base:3900, w:280,h:85, col:'#3aaa52',par:0.14},
+        {base:1400, w:120,h:40, col:'#1e6630',par:0.32},
     ];
-    const wy=sy(WATER_Y);
+    const wy = sy(WATER_Y);
     ISLS.forEach(isl=>{
-        const cx=isl.base - CAM.x*isl.par + W*0.5;
-        // 島本体
-        ctx.fillStyle=isl.col;
+        const cx = isl.base - CAM.x*isl.par + W*0.5;
+        ctx.fillStyle = isl.col;
         ctx.beginPath();
-        ctx.moveTo(cx-isl.w/2,wy);
+        ctx.moveTo(cx-isl.w/2, wy);
         ctx.bezierCurveTo(cx-isl.w*.38,wy-isl.h*1.3, cx+isl.w*.38,wy-isl.h*1.3, cx+isl.w/2,wy);
-        ctx.closePath();ctx.fill();
-        // 砂浜
-        ctx.fillStyle='#e8c87a';
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#e8c87a';
         ctx.beginPath();
-        ctx.ellipse(cx,wy,isl.w*.38,isl.h*.16,0,Math.PI,0);ctx.fill();
-        // ヤシの木
+        ctx.ellipse(cx,wy,isl.w*.38,isl.h*.16,0,Math.PI,0); ctx.fill();
         palm(cx-isl.w*.08, wy-isl.h*.88, isl.h*.65);
         if(isl.w>180) palm(cx+isl.w*.16, wy-isl.h*.72, isl.h*.52);
     });
 }
 function palm(x,y,h){
-    // 幹
-    ctx.strokeStyle='#7a5522';ctx.lineWidth=3;
-    ctx.beginPath();ctx.moveTo(x,y+h);
-    ctx.quadraticCurveTo(x+h*.18,y+h*.5,x,y);ctx.stroke();
-    // 葉
+    ctx.strokeStyle='#7a5522'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(x,y+h);
+    ctx.quadraticCurveTo(x+h*.18,y+h*.5,x,y); ctx.stroke();
     const lvs=[[-1,-.4],[1,-.4],[0,-1],[.6,-.7],[-.6,-.7]];
     ctx.lineWidth=2;
     lvs.forEach(([dx,dy])=>{
         ctx.strokeStyle=`hsl(${110+dx*10},65%,${30+dy*10}%)`;
-        ctx.beginPath();ctx.moveTo(x,y);
-        ctx.quadraticCurveTo(x+dx*h*.3,y+dy*h*.35,x+dx*h*.65,y+dy*h*.52);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x,y);
+        ctx.quadraticCurveTo(x+dx*h*.3,y+dy*h*.35,x+dx*h*.65,y+dy*h*.52); ctx.stroke();
     });
 }
+
 function drawWater(){
-    const left=CAM.x-200;
-    const g=ctx.createLinearGradient(0,WATER_Y,0,WATER_Y+H);
-    // 明るいエメラルドグリーン〜ターコイズ
-    g.addColorStop(0,'#12c4c4');g.addColorStop(.25,'#0fa0aa');g.addColorStop(1,'#07607a');
-    ctx.fillStyle=g;ctx.fillRect(left,WATER_Y,W+400,H+300);
+    const left = CAM.x-200;
+    const g = ctx.createLinearGradient(0,WATER_Y,0,WATER_Y+H);
+    g.addColorStop(0,'#12c4c4'); g.addColorStop(.25,'#0fa0aa'); g.addColorStop(1,'#07607a');
+    ctx.fillStyle=g; ctx.fillRect(left,WATER_Y,W+400,H+300);
     ctx.fillStyle='rgba(255,255,255,0.09)';
-    for(let i=0;i<8;i++){const shx=left+((frame*1.3+i*138)%(W+400));ctx.fillRect(shx,WATER_Y+5,55,2);}
+    for(let i=0;i<8;i++){const shx=left+((frame*1.3+i*138)%(W+400)); ctx.fillRect(shx,WATER_Y+5,55,2);}
 }
 function drawWaves(){
-    ctx.strokeStyle='rgba(180,235,255,0.52)';ctx.lineWidth=1.7;
+    ctx.strokeStyle='rgba(180,235,255,0.52)'; ctx.lineWidth=1.7;
     WAVES.forEach(w=>{
         const wy=WATER_Y+Math.sin(w.ph+frame*.022)*w.amp*.28;
-        ctx.beginPath();ctx.moveTo(w.worldX,wy);
+        ctx.beginPath(); ctx.moveTo(w.worldX,wy);
         ctx.bezierCurveTo(w.worldX+w.len*.3,wy-w.amp,w.worldX+w.len*.7,wy-w.amp,w.worldX+w.len,wy);
         ctx.stroke();
     });
@@ -582,99 +870,84 @@ function drawWaves(){
 function drawParticles(){
     ptcls.forEach(p=>{
         ctx.fillStyle=p.col+(p.life/p.maxLife).toFixed(2)+')';
-        ctx.beginPath();ctx.arc(p.x,p.y,2.2,0,Math.PI*2);ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x,p.y,2.2,0,Math.PI*2); ctx.fill();
     });
 }
 function drawKiteLine(){
     const col = K.edgeState==='collapse' ? '#FF4444' :
                 K.edgeState==='warn'     ? '#FFD700' : 'rgba(220,220,220,0.72)';
-    if(K.looping){ctx.shadowColor='#00BFFF';ctx.shadowBlur=8;}
-    ctx.strokeStyle=col; ctx.lineWidth=K.looping?2.5:1.2;
-    ctx.setLineDash(K.looping?[]:[5,5]);
-    ctx.beginPath();ctx.moveTo(P.x,P.y-8);ctx.lineTo(K.x,K.y);ctx.stroke();
-    ctx.setLineDash([]);ctx.shadowBlur=0;
-}
-
-function drawKite(){
-    ctx.save();
-    ctx.translate(K.x,K.y);
-    ctx.rotate((K.angle+90)*Math.PI/180);
-
-    const pw=Math.max(0.3,K.power/9);
-    const W2=32+pw*5,H2=14+pw*2;
-    const pm=posMult(K.angle);
-
-    const kiteCol = K.edgeState==='collapse' ? '#888' :
-                    K.edgeState==='warn'     ? '#FF8C00' : '#E53935';
-    const hlCol   = K.edgeState==='collapse' ? '#aaa' :
-                    K.edgeState==='warn'     ? '#FFD700' : '#FF8A80';
-
-    const swingGlow = K.swingFlash > 0 ? K.swingFlash * 3 : 0;
-    if(pm>0.5||K.looping||swingGlow>0){
-        ctx.shadowColor = K.swingFlash>0 ? '#FFFFFF' : '#00BFFF';
-        ctx.shadowBlur  = swingGlow + (K.looping?25:pm*18);
+    if (K.swingFlash > 0) {
+        ctx.shadowColor='#fff'; ctx.shadowBlur = K.swingFlash * 2.5;
     }
+    ctx.strokeStyle=col; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(P.x, P.y-20); ctx.lineTo(K.x, K.y); ctx.stroke();
+    ctx.shadowBlur=0;
+}
+function drawKite(){
+    ctx.save(); ctx.translate(K.x, K.y);
+    const rad = K.angle * Math.PI / 180;
+    ctx.rotate(rad + Math.PI/2);
 
-    ctx.fillStyle=kiteCol;
+    const col = K.edgeState==='collapse' ? '#888' :
+                K.edgeState==='warn'     ? '#FFD700' :
+                K.looping                ? '#00BFFF' : '#1E90FF';
+
+    if (K.looping) { ctx.shadowColor='#00BFFF'; ctx.shadowBlur=18; }
+
+    // Cシェイプカイト本体
+    ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.moveTo(-W2,0);
-    ctx.quadraticCurveTo(-W2*.5,-H2*1.6,0,-H2*1.8);
-    ctx.quadraticCurveTo( W2*.5,-H2*1.6,W2,0);
-    ctx.quadraticCurveTo( W2*.5, H2*.6, 0, H2*.8);
-    ctx.quadraticCurveTo(-W2*.5, H2*.6,-W2,0);
-    ctx.closePath();ctx.fill();
+    ctx.moveTo(0, -28);
+    ctx.bezierCurveTo(22,-26, 28,-8, 22, 10);
+    ctx.bezierCurveTo(18, 20, 6, 22, 0, 20);
+    ctx.bezierCurveTo(-6, 22,-18, 20,-22, 10);
+    ctx.bezierCurveTo(-28,-8,-22,-26, 0,-28);
+    ctx.fill();
 
-    ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(0,-H2*1.8);ctx.lineTo(0,H2*.8);ctx.stroke();
-    [-0.52,0.52].forEach(t=>{
-        const bx=W2*t,bt=-H2*(1.8-Math.abs(t)*.5),bb=H2*(0.8-Math.abs(t)*.3);
-        ctx.beginPath();ctx.moveTo(bx,bt);ctx.lineTo(bx,bb);ctx.stroke();
+    // ブラダー（中央の白いライン）
+    ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(0,-24);
+    ctx.bezierCurveTo(4,-10, 4,6, 0,18);
+    ctx.stroke();
+
+    // ストラット（横のライン）
+    ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1.5;
+    [-14,0,14].forEach(ox=>{
+        ctx.beginPath(); ctx.moveTo(ox,-18); ctx.lineTo(ox*0.85,14); ctx.stroke();
     });
-
-    ctx.strokeStyle=hlCol.replace('#','rgba(').replace(/(..)(..)(..)/, (_,r,g,b)=>
-        `rgba(${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)},0.55)`);
-    ctx.strokeStyle='rgba(255,200,200,0.55)';ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(-W2,0);
-    ctx.quadraticCurveTo(-W2*.5,-H2*1.6,0,-H2*1.8);
-    ctx.quadraticCurveTo(W2*.5,-H2*1.6,W2,0);ctx.stroke();
-
-    ctx.fillStyle='#B71C1C';
-    [[-W2,0],[W2,0]].forEach(([tx,ty])=>{ctx.beginPath();ctx.arc(tx,ty,5,0,Math.PI*2);ctx.fill();});
-
-    ctx.shadowBlur=0;ctx.restore();
+    ctx.shadowBlur=0;
+    ctx.restore();
 }
 
 function drawPlayer(){
-    ctx.save();ctx.translate(P.x,P.y);
-    ctx.rotate(P.rot*Math.PI/180);
+    ctx.save(); ctx.translate(P.x, P.y);
+    ctx.rotate(P.rot * Math.PI / 180);
 
     const flash = P.crashing && (P.crashTimer%8<4);
-    const skin  = flash ? '#FF6666' : '#f5c59c'; // 肌色
-    const F     = (c) => { ctx.fillStyle = flash ? '#FF4444' : c; };
+    const skin  = flash ? '#FF6666' : '#f5c59c';
+    const F = (c) => { ctx.fillStyle = flash ? '#FF4444' : c; };
 
     // ボード
     ctx.fillStyle='#2196F3';
-    rrect(-22,-6,44,9,3);ctx.fill();
-    ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1;ctx.stroke();
+    rrect(-22,-6,44,9,3); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.35)'; ctx.lineWidth=1; ctx.stroke();
 
-    // 脚（肌色）
+    // 脚
     ctx.fillStyle=skin;
-    ctx.fillRect(-8,-22,5,16);ctx.fillRect(4,-22,5,16);
+    ctx.fillRect(-8,-22,5,16); ctx.fillRect(4,-22,5,16);
 
-    // 赤い短パン（脚より少し広め）
+    // 赤い短パン
     F('#d42020');
     ctx.fillRect(-10,-30,20,12);
-    // 短パンのウエストライン
     ctx.fillStyle=flash?'#FF6666':'rgba(255,255,255,0.25)';
     ctx.fillRect(-10,-30,20,2);
 
-    // 黒いインパクトベスト
+    // 黒インパクトベスト
     F('#1a1a1a');
     ctx.fillRect(-8,-42,16,14);
-    // ベストのサイドパネル（明るめグレー）
     ctx.fillStyle=flash?'#FF6666':'#333';
-    ctx.fillRect(-8,-42,3,14);ctx.fillRect(5,-42,3,14);
-    // ジッパーライン
+    ctx.fillRect(-8,-42,3,14); ctx.fillRect(5,-42,3,14);
     ctx.fillStyle=flash?'#FF6666':'rgba(180,180,180,0.5)';
     ctx.fillRect(-1,-41,2,12);
 
@@ -682,26 +955,24 @@ function drawPlayer(){
     ctx.fillStyle=skin;
     ctx.fillRect(-3,-45,6,5);
 
-    // 頭（肌色ベース）
+    // 頭
     ctx.fillStyle=skin;
-    ctx.beginPath();ctx.arc(0,-48,7,0,Math.PI*2);ctx.fill();
+    ctx.beginPath(); ctx.arc(0,-48,7,0,Math.PI*2); ctx.fill();
 
-    // 黄色いヘルメット（上半分、頭より少し大きい）
+    // 黄色ヘルメット
     F('#FFD700');
-    ctx.beginPath();ctx.arc(0,-48,8.5,Math.PI,0);ctx.fill();
-    // ヘルメットのつば
+    ctx.beginPath(); ctx.arc(0,-48,8.5,Math.PI,0); ctx.fill();
     ctx.fillRect(-10,-48,20,3);
-    // ヘルメットのリム（ライン）
     ctx.fillStyle=flash?'#FF4444':'#e6a800';
     ctx.fillRect(-10,-49,20,2);
 
-    // バイザー/ゴーグル
-    ctx.fillStyle='rgba(0,0,0,0.55)';ctx.fillRect(-5,-51,10,4);
+    // バイザー
+    ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(-5,-51,10,4);
 
     if(P.floatFrames>0){
         const a=(P.floatFrames/50)*.4;
         ctx.fillStyle=`rgba(0,191,255,${a.toFixed(2)})`;
-        ctx.beginPath();ctx.arc(0,-25,30,0,Math.PI*2);ctx.fill();
+        ctx.beginPath(); ctx.arc(0,-25,30,0,Math.PI*2); ctx.fill();
     }
     ctx.restore();
 }
@@ -709,220 +980,25 @@ function drawPlayer(){
 function drawWorldMsgs(){
     msgs.forEach(m=>{
         const a=Math.min(1,m.life/28);
-        ctx.save();ctx.globalAlpha=a;
-        ctx.fillStyle=m.color;ctx.font=`bold ${m.size}px Arial`;
-        ctx.textAlign='center';ctx.shadowColor='rgba(0,0,0,.9)';ctx.shadowBlur=5;
-        ctx.fillText(m.text,m.x,m.y);ctx.restore();
+        ctx.save(); ctx.globalAlpha=a;
+        ctx.fillStyle=m.color; ctx.font=`bold ${m.size}px Arial`;
+        ctx.textAlign='center'; ctx.shadowColor='rgba(0,0,0,.9)'; ctx.shadowBlur=5;
+        ctx.fillText(m.text,m.x,m.y); ctx.restore();
     });
-}
-
-// ---- 飛行中スタッツ ----
-function drawFlightStats(){
-    const heightM  = P.crashing ? Math.floor(P.peakH*PX_TO_M)
-                                 : Math.max(0,Math.floor((WATER_Y-P.y)*PX_TO_M));
-    const peakM    = Math.floor(P.peakH*PX_TO_M);
-    const distM    = Math.floor(Math.abs(P.x-P.jumpX)*PX_TO_M*.6);
-    const airtimeS = (P.airTime/FPS).toFixed(1);
-
-    // 落下速度インジケータ（vy > 0 かつ空中時）
-    const vy       = P.vy;
-    const vyPct    = Math.min(1, Math.max(0, vy / (CRASH_VY * 1.2)));
-    const vyCol    = vy <= 0    ? '#00FF88' :
-                     vy < CRASH_VY*0.7 ? '#FFD700' : '#FF4444';
-
-    // 体制インジケータ
-    const normRot  = ((P.rot%360)+360)%360;
-    const bodyAngle= normRot>180 ? 360-normRot : normRot;
-    const rotRemPct = Math.abs(P.trickRot) / 360;
-    const rotCol   = rotRemPct < 0.15 ? '#00FF88' :
-                     rotRemPct < 0.50 ? '#FFD700' : '#FF4444';
-
-    // カイト状態
-    const kiteCol  = K.edgeState==='collapse' ? '#FF4444' :
-                     K.edgeState==='warn'     ? '#FFD700' : '#00FF88';
-
-    const panW=178,panH=110,panX=W/2-panW/2,panY=14;
-    ctx.fillStyle='rgba(0,0,0,0.65)';
-    rrect(panX,panY,panW,panH,10);ctx.fill();
-
-    ctx.textAlign='left';
-
-    // 高度
-    ctx.fillStyle='#FFD700';ctx.font='bold 12px Arial';
-    ctx.fillText('▲ 高度',panX+12,panY+22);
-    ctx.fillStyle='#fff';ctx.font='bold 22px Arial';
-    ctx.fillText(`${heightM} m`,panX+12,panY+44);
-    ctx.fillStyle='#888';ctx.font='10px Arial';
-    ctx.fillText(`PEAK ${peakM}m`,panX+12,panY+57);
-
-    // 飛距離・滞空
-    ctx.fillStyle='#00FF88';ctx.font='bold 12px Arial';
-    ctx.fillText('→ 飛距離',panX+100,panY+22);
-    ctx.fillStyle='#fff';ctx.font='bold 20px Arial';
-    ctx.fillText(`${distM} m`,panX+100,panY+44);
-    ctx.fillStyle='#88CCFF';ctx.font='bold 12px Arial';
-    ctx.fillText('⏱ 滞空',panX+100,panY+60);
-    ctx.fillStyle='#fff';ctx.font='bold 16px Arial';
-    ctx.fillText(`${airtimeS} s`,panX+100,panY+76);
-
-    // ---- 状態インジケータ 3つ ----
-    const indY = panY+85;
-    // 落下速度
-    drawIndicator(panX+14, indY, '落下', vyCol, vy>0 ? (vyPct*100).toFixed(0)+'%' : 'OK');
-    // 体制
-    drawIndicator(panX+72, indY, '体制', rotCol, rotRemPct < 0.15 ? 'OK' : rotRemPct > 0.5 ? '危険!' : '回転中');
-    // カイト
-    drawIndicator(panX+130, indY, 'カイト', kiteCol,
-        K.edgeState==='collapse'?'崩壊':K.edgeState==='warn'?'注意':'OK');
-
-    // 風窓警告
-    if (K.edgeState !== 'ok') {
-        const warnA = 0.7 + Math.sin(frame*0.25)*0.3;
-        ctx.save();ctx.globalAlpha=warnA;
-        ctx.fillStyle=K.edgeState==='collapse'?'#FF4444':'#FFD700';
-        ctx.font='bold 13px Arial';ctx.textAlign='center';
-        ctx.fillText(K.edgeState==='collapse'?'⚠ KITE EDGE – POWER LOST!':'⚠ KITE EDGE – STEER BACK!',
-                     W/2, panY+panH+20);
-        ctx.restore();
-    }
-}
-
-function drawIndicator(x,y,label,col,val){
-    ctx.fillStyle='rgba(255,255,255,0.12)';
-    rrect(x,y,50,18,4);ctx.fill();
-    ctx.fillStyle=col;ctx.font='bold 9px Arial';ctx.textAlign='center';
-    ctx.fillText(label,x+25,y+8);
-    ctx.font='bold 10px Arial';
-    ctx.fillText(val,x+25,y+17);
-}
-
-// ---- 着地結果カード ----
-function drawResultCard(){
-    const rc=resultCard;
-    const a =Math.min(1, rc.life>150?(180-rc.life)/30:rc.life/60);
-    const cw=300,ch=rc.crashed?180:170,cx=W/2-cw/2,cy=H/2-ch/2-40;
-
-    ctx.save();ctx.globalAlpha=a;
-    ctx.fillStyle=rc.crashed?'rgba(30,0,0,0.90)':'rgba(0,10,30,0.88)';
-    rrect(cx,cy,cw,ch,14);ctx.fill();
-    ctx.strokeStyle=rc.crashed?'rgba(255,68,68,0.6)':'rgba(0,191,255,0.5)';
-    ctx.lineWidth=1.5;rrect(cx,cy,cw,ch,14);ctx.stroke();
-
-    ctx.textAlign='center';
-    if(rc.crashed){
-        ctx.fillStyle='#FF4444';ctx.font='bold 22px Arial';
-        ctx.fillText('WIPEOUT!',W/2,cy+32);
-        ctx.fillStyle='#FF8888';ctx.font='13px Arial';
-        ctx.fillText(rc.reason||'',W/2,cy+52);
-    }else{
-        ctx.fillStyle='#00FF88';ctx.font='bold 18px Arial';
-        ctx.fillText('LANDED!',W/2,cy+30);
-    }
-
-    const stats=[
-        {label:'▲ 高度',val:`${rc.heightM} m`,col:'#FFD700',x:W/2-90},
-        {label:'→ 飛距離',val:`${rc.distM} m`,col:'#00FF88',x:W/2},
-        {label:'⏱ 滞空',val:`${rc.airtimeS} s`,col:'#88CCFF',x:W/2+90},
-    ];
-    const oy=rc.crashed?20:0;
-    stats.forEach(s=>{
-        ctx.fillStyle=s.col;ctx.font='bold 11px Arial';ctx.fillText(s.label,s.x,cy+58+oy);
-        ctx.fillStyle='#fff';ctx.font='bold 22px Arial';ctx.fillText(s.val,s.x,cy+80+oy);
-    });
-
-    if(!rc.crashed&&rc.tricks.length>0){
-        ctx.fillStyle='rgba(255,215,0,0.8)';ctx.font='13px Arial';
-        ctx.fillText(rc.tricks.join(' / '),W/2,cy+104);
-    }
-    ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='14px Arial';
-    ctx.fillText(`+${rc.pts} pts`,W/2,cy+122+oy);
-    if(!rc.crashed&&score===best&&best>0){
-        ctx.fillStyle='#FFD700';ctx.font='bold 13px Arial';
-        ctx.fillText('★ NEW BEST!',W/2,cy+142);
-    }
-    ctx.restore();
-}
-
-// ---- HUD ----
-function drawHUD(){
-    const wind=(WIND.base+Math.sin(frame*.009)*1.5).toFixed(1);
-    const spd=Math.abs(P.vx).toFixed(1);
-
-    ctx.fillStyle='rgba(0,0,0,.55)';rrect(8,8,196,105,8);ctx.fill();
-    ctx.fillStyle='#00FF88';ctx.font='bold 22px Arial';ctx.textAlign='left';
-    ctx.fillText('SCORE: '+score,18,40);
-    ctx.fillStyle='#FFD700';ctx.font='14px Arial';
-    ctx.fillText('BEST:  '+best,18,60);
-    ctx.fillText('JUMPS: '+jumpCount,18,78);
-    ctx.fillStyle='#88CCFF';ctx.fillText('SPEED: '+spd+' kn',18,96);
-
-    ctx.fillStyle='rgba(0,0,0,.55)';rrect(W-160,8,152,42,8);ctx.fill();
-    ctx.fillStyle='#88CCFF';ctx.font='13px Arial';ctx.textAlign='left';
-    ctx.fillText('WIND: '+wind+' kn  →',W-150,32);
-
-    drawPowerBar();
-
-    if(!P.onWater&&P.airTime>6){
-        ctx.fillStyle='rgba(0,0,0,.52)';rrect(W-172,58,164,108,8);ctx.fill();
-        ctx.fillStyle='#FFD700';ctx.font='bold 12px Arial';ctx.textAlign='left';
-        ctx.fillText('TRICKS:',W-162,78);
-        const guide=[
-            {code:'Q',name:'Kite Loop',pts:800,col:'#00BFFF',done:P.loopDone},
-            ...TRICKS.map(t=>({code:t.code.replace('Key',''),name:t.name,pts:t.pts,col:t.col,done:P.tricks.has(t.name)})),
-        ];
-        guide.forEach((t,i)=>{
-            ctx.fillStyle=t.done?'#00FF88':'#999';
-            ctx.fillText(`[${t.code}] ${t.name}  +${t.pts}`,W-162,95+i*17);
-        });
-        if(P.comboWindow>0){
-            ctx.fillStyle=`rgba(255,215,0,${(P.comboWindow/40).toFixed(2)})`;
-            ctx.font='bold 11px Arial';ctx.fillText('▶ COMBO WINDOW!',W-162,163);
-        }
-        // Xキーヒント（回転中）
-        if(Math.abs(P.trickRot)>45){
-            ctx.fillStyle='rgba(255,200,100,0.85)';ctx.font='bold 11px Arial';
-            ctx.fillText('[X] 体制を戻す',W-162,175);
-        }
-    }
-
-    if(jumpCount===0&&frame<380){
-        const a=Math.max(0,1-frame/320);
-        ctx.fillStyle=`rgba(255,255,255,${(a*.75).toFixed(2)})`;
-        ctx.font='14px Arial';ctx.textAlign='center';
-        ctx.fillText('← → でカイト操作してスピードアップ → SPACE でジャンプ！',W/2,H-22);
-    }
-}
-
-function drawPowerBar(){
-    const mw=162,mh=14,mx=W/2-mw/2,my=H-46;
-    ctx.fillStyle='rgba(0,0,0,.6)';rrect(mx-8,my-24,mw+16,mh+32,8);ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.28)';ctx.font='11px Arial';ctx.textAlign='center';
-    ctx.fillText('KITE POWER',W/2,my-8);
-    ctx.fillStyle='rgba(255,255,255,.15)';rrect(mx,my,mw,mh,4);ctx.fill();
-    const pct=Math.min(1,K.power/10);
-    if(pct>0.02){
-        const g=ctx.createLinearGradient(mx,0,mx+mw,0);
-        g.addColorStop(0,'#00FF88');g.addColorStop(.5,'#FFD700');g.addColorStop(1,'#FF4444');
-        if(K.looping){ctx.shadowColor='#00BFFF';ctx.shadowBlur=12;}
-        ctx.fillStyle=g;rrect(mx,my,mw*pct,mh,4);ctx.fill();ctx.shadowBlur=0;
-    }
-    const jx=mx+mw*.22;
-    ctx.strokeStyle='rgba(255,255,255,.75)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);
-    ctx.beginPath();ctx.moveTo(jx,my-2);ctx.lineTo(jx,my+mh+2);ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle='rgba(255,255,255,.55)';ctx.font='9px Arial';ctx.textAlign='center';
-    ctx.fillText('JUMP',jx,my+mh+12);
 }
 
 function rrect(x,y,w,h,r){
     ctx.beginPath();
-    ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
-    ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
-    ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
-    ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+    ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+    ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+    ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r); ctx.closePath();
 }
 
-(function loop(){ update(); draw(); requestAnimationFrame(loop); })();
+// ============================================================
+//  メインループ
+// ============================================================
+(function loop(){ update(); draw(); updateUI(); requestAnimationFrame(loop); })();
 </script>
 </body>
 </html>
