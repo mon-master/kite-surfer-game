@@ -274,7 +274,6 @@ function updatePlayer() {
             P.comboWindow = 0; P.floatFrames = 0; P.boostVx = 0;
             jumpCount++;
             splash(P.x, WATER_Y, 32);
-            K.targetAngle = -128;
 
             // ジャンプ種別メッセージ
             if (uplift > 0.85) {
@@ -287,24 +286,20 @@ function updatePlayer() {
     } else {
         P.airTime++;
 
-        // ---- トリック回転: 一定速度で trickRot を消費して1周で停止 ----
+        // ---- トリック回転: 一定速度で trickRot を消費、0になったら自然停止 ----
         if (P.trickRot !== 0) {
             const step = P.trickRot > 0
                 ? Math.min( TRICK_ROT_SPEED,  P.trickRot)
                 : Math.max(-TRICK_ROT_SPEED,  P.trickRot);
-            P.rot     += step;
+            P.rot      += step;
             P.trickRot -= step;
-            // 完了したら直立に戻す
-            if (Math.abs(P.trickRot) < 0.5) {
-                P.trickRot = 0;
-                P.rot = 0;
-            }
+            if (Math.abs(P.trickRot) < 0.5) P.trickRot = 0;
+            // ※ P.rot = 0 に強制スナップしない → 自然に止まる
         }
 
-        // Xキー: トリック回転をキャンセルして直立に戻す
+        // Xキー: トリック回転をキャンセル（rot はそのまま保持）
         if (keys['KeyX'] && P.trickRot !== 0) {
             P.trickRot = 0;
-            P.rot = 0;
         }
 
         P.vx += pullX * 0.28;
