@@ -104,9 +104,9 @@ const WIND = { base: 8.5 };
 // ---- トリック ----
 // rotDir: +1=前方回転(フロント), -1=後方回転(バック), 0=回転なし
 const TRICKS = [
-    { code:'KeyA', name:'Grab',       pts:300, col:'#FFD700', rotDir: 0 },
-    { code:'KeyS', name:'FrontRoll',  pts:500, col:'#00CFFF', rotDir:+1 },
-    { code:'KeyD', name:'BackRoll',   pts:700, col:'#FF6B6B', rotDir:-1 },
+    { code:'KeyA', name:'Grab',       pts: 30, col:'#FFD700', rotDir: 0 },
+    { code:'KeyS', name:'FrontRoll',  pts: 50, col:'#00CFFF', rotDir:+1 },
+    { code:'KeyD', name:'BackRoll',   pts: 70, col:'#FF6B6B', rotDir:-1 },
 ];
 
 let ptcls = [], msgs = [];
@@ -385,7 +385,7 @@ function crash(reason) {
     addMsg(reason, P.x, WATER_Y - 100, '#FF8888', 14, 110);
 
     // 部分スコア（高さと滞空のみ、トリックなし）
-    const pts = Math.floor(P.peakH * 1.2 + P.airTime * 0.8);
+    const pts = Math.floor(P.peakH * 0.12 + P.airTime * 0.08);
     score += pts;
 
     resultCard = {
@@ -419,7 +419,7 @@ function land() {
     const heightM  = Math.floor(P.peakH * PX_TO_M);
     const distM    = Math.floor(Math.abs(P.x - P.jumpX) * PX_TO_M * 0.6);
     const airtimeS = (P.airTime / FPS).toFixed(1);
-    const pts      = Math.floor(P.peakH * 3.5 + P.airTime * 1.8 + P.trickScore);
+    const pts      = Math.floor(P.peakH * 0.35 + P.airTime * 0.18 + P.trickScore);
     score += pts; if (score > best) best = score;
 
     resultCard = {
@@ -449,7 +449,7 @@ function triggerKiteLoop() {
         burst(P.x, P.y, '#00BFFF');
         addMsg('KITE LOOP! → DISTANCE', P.x, P.y-50, '#00BFFF', 22, 75);
     }
-    P.trickScore += 800; P.loopDone = true;
+    P.trickScore += 80; P.loopDone = true;
     if (P.comboWindow > 0 || P.spinDone) triggerCombo();
     else P.comboWindow = 40;
 }
@@ -462,7 +462,7 @@ function triggerSpin() {
     else P.comboWindow = 40;
 }
 function triggerCombo() {
-    P.vy -= 1.0; P.boostVx += P.dir*1.5; P.trickScore += 1000;
+    P.vy -= 1.0; P.boostVx += P.dir*1.5; P.trickScore += 100;
     burst(P.x, P.y-20, '#FFD700'); burst(P.x, P.y+10, '#FF6B6B');
     addMsg('🔥 COMBO BOOST! +1000', P.x, P.y-80, '#FFD700', 26, 100);
     P.comboWindow = 0;
