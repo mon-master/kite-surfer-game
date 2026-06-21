@@ -939,62 +939,96 @@ function drawKite(){
 
     const collapsed = K.edgeState === 'collapse';
     const warned    = K.edgeState === 'warn';
-    if (K.looping) { ctx.shadowColor='#00BFFF'; ctx.shadowBlur=22; }
+    if (K.looping) { ctx.shadowColor='#00BFFF'; ctx.shadowBlur=24; }
+    if (collapsed)  ctx.globalAlpha = 0.7;
 
-    // カイトを線方向に垂直に向ける
+    // カイトをライン方向に向ける
     const kRad = (K.angle + 90) * Math.PI / 180;
     ctx.rotate(kRad);
 
-    const W2 = 34, H2 = 14; // 翼幅・高さ
+    // ── LEI kite の形状 ──
+    // 実物: 横長クレセント、上部に太い膨らんだリーディングエッジチューブ
+    const HW = 46; // 半翼幅
+    const HH = 26; // 高さ
 
-    // 翼パネル色
-    const cL = collapsed ? '#555' : warned ? '#CC9900' : K.looping ? '#0099EE' : '#EE3300';
-    const cR = collapsed ? '#444' : warned ? '#FFD700' : K.looping ? '#00CCFF' : '#FFFFFF';
+    // カラーセット（オレンジ/白/黒 or 状態別）
+    const CA = collapsed?'#666': warned?'#FFD700': K.looping?'#00BBFF':'#FF7200'; // メイン
+    const CB = collapsed?'#444': warned?'#CC8800': K.looping?'#0044BB':'#FFFFFF'; // サブ
+    const CC = collapsed?'#333': warned?'#996600': K.looping?'#002288':'#111111'; // ダーク
 
-    // 左翼
-    ctx.fillStyle = cL;
+    // LE（リーディングエッジ）の弧パス定義
+    const leArc = () => {
+        ctx.moveTo(-HW, HH*0.15);
+        ctx.bezierCurveTo(-HW*0.88,-HH*0.55, -HW*0.28,-HH, 0,-HH);
+        ctx.bezierCurveTo( HW*0.28,-HH,  HW*0.88,-HH*0.55,  HW, HH*0.15);
+    };
+
+    // キャノピー全体（ベース塗り - CA）
+    ctx.fillStyle = CA;
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.bezierCurveTo(-W2*.3,-H2, -W2*.85,-H2*.5, -W2, H2*.5);
-    ctx.bezierCurveTo(-W2*.7, H2*.9, -W2*.25, H2*.8, 0, H2*.4);
+    leArc();
+    // トレーリングエッジ（内側の弧）
+    ctx.bezierCurveTo(HW*0.7, HH*0.75, HW*0.25, HH*0.9, 0, HH*0.85);
+    ctx.bezierCurveTo(-HW*0.25, HH*0.9, -HW*0.7, HH*0.75, -HW, HH*0.15);
     ctx.closePath(); ctx.fill();
 
-    // 右翼
-    ctx.fillStyle = cR;
+    // センターパネル（白）
+    ctx.fillStyle = CB;
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.bezierCurveTo(W2*.3,-H2, W2*.85,-H2*.5, W2, H2*.5);
-    ctx.bezierCurveTo(W2*.7, H2*.9, W2*.25, H2*.8, 0, H2*.4);
+    ctx.moveTo(-HW*0.22, -HH*0.88);
+    ctx.bezierCurveTo(-HW*0.22,-HH, HW*0.22,-HH, HW*0.22,-HH*0.88);
+    ctx.lineTo(HW*0.18, HH*0.82);
+    ctx.bezierCurveTo(HW*0.1, HH*0.88, -HW*0.1, HH*0.88, -HW*0.18, HH*0.82);
     ctx.closePath(); ctx.fill();
 
-    // センターパネル（差し色）
-    ctx.fillStyle = collapsed ? '#333' : warned ? '#886600' : K.looping ? '#0055BB' : '#CC1100';
+    // ロゴエリア（センターパネル内の暗色ロゴ風）
+    ctx.fillStyle = CC;
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(-W2*.18, -H2*.7);
-    ctx.lineTo(0, H2*.4);
-    ctx.lineTo(W2*.18, -H2*.7);
-    ctx.closePath(); ctx.fill();
+    ctx.ellipse(0, -HH*0.35, HW*0.10, HH*0.22, 0, 0, Math.PI*2);
+    ctx.fill();
 
-    // リーディングエッジ（太い輝くアーク）
-    const leG = ctx.createLinearGradient(-W2,0,W2,0);
-    leG.addColorStop(0,'rgba(255,255,255,0.3)');
-    leG.addColorStop(.5,'rgba(255,255,255,0.9)');
-    leG.addColorStop(1,'rgba(255,255,255,0.3)');
-    ctx.strokeStyle = leG; ctx.lineWidth = 5; ctx.lineCap='round';
-    ctx.beginPath();
-    ctx.moveTo(-W2, H2*.5);
-    ctx.bezierCurveTo(-W2*.85,-H2*.5, -W2*.3,-H2, 0, 0);
-    ctx.bezierCurveTo(W2*.3,-H2, W2*.85,-H2*.5, W2, H2*.5);
-    ctx.stroke();
-
-    // ウィングチップ
-    [-W2, W2].forEach(tx=>{
-        ctx.fillStyle='rgba(255,255,255,0.7)';
-        ctx.beginPath(); ctx.arc(tx, H2*.5, 3.5, 0, Math.PI*2); ctx.fill();
+    // ストラット（縦の仕切り線: -0.55, -0.22, +0.22, +0.55 の位置）
+    const strutXs = [-HW*0.58, -HW*0.22, HW*0.22, HW*0.58];
+    ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 1.8;
+    strutXs.forEach(sx=>{
+        const topY = -HH * (1 - (sx/HW)*(sx/HW)*0.18);
+        ctx.beginPath();
+        ctx.moveTo(sx, topY);
+        ctx.quadraticCurveTo(sx*0.85, HH*0.4, sx*0.75, HH*0.82);
+        ctx.stroke();
     });
 
-    ctx.shadowBlur=0;
+    // ── リーディングエッジチューブ（一番目立つ部分）──
+    // 下から: 暗い影 → 本色 → 明るいハイライト
+    const leW = 7;
+    ctx.lineCap = 'round';
+
+    // 影
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = leW + 4;
+    ctx.beginPath(); leArc(); ctx.stroke();
+
+    // 本体
+    ctx.strokeStyle = CA; ctx.lineWidth = leW;
+    ctx.beginPath(); leArc(); ctx.stroke();
+
+    // ハイライト（光沢）
+    const hlG = ctx.createLinearGradient(0,-HH*1.1,0,-HH*0.5);
+    hlG.addColorStop(0,'rgba(255,255,255,0.92)');
+    hlG.addColorStop(0.6,'rgba(255,255,255,0.15)');
+    hlG.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.strokeStyle = hlG; ctx.lineWidth = leW * 0.55;
+    ctx.beginPath(); leArc(); ctx.stroke();
+
+    // ウィングチップ（丸いキャップ）
+    [-HW, HW].forEach(tx=>{
+        const ty = HH*0.15;
+        ctx.fillStyle = CC;
+        ctx.beginPath(); ctx.arc(tx, ty, 5.5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.beginPath(); ctx.arc(tx-1.5, ty-2, 2.5, 0, Math.PI*2); ctx.fill();
+    });
+
+    ctx.shadowBlur=0; ctx.globalAlpha=1;
     ctx.restore();
 }
 
