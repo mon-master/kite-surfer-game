@@ -20,12 +20,19 @@ canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block;}
 }
 
 /* ── スコアパネル ── */
-#hud-score{position:absolute;top:14px;left:14px;padding:10px 16px;min-width:128px;}
+#hud-score{position:absolute;top:14px;left:14px;padding:8px 14px;min-width:110px;}
 .lbl{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.38);margin-bottom:3px;}
-#ui-score{font-size:34px;font-weight:900;color:#00FF88;line-height:1;
-  text-shadow:0 0 24px rgba(0,255,136,0.55);}
-#ui-best {font-size:12px;color:#FFD700;margin-top:4px;}
+#ui-score{font-size:20px;font-weight:900;color:#00FF88;line-height:1;
+  text-shadow:0 0 16px rgba(0,255,136,0.5);}
+#ui-best {font-size:11px;color:#FFD700;margin-top:3px;}
 #ui-jumps{font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px;}
+
+/* ── 最高高さログ ── */
+#hud-log{position:absolute;top:14px;left:50%;transform:translateX(-50%);
+  padding:8px 14px;min-width:110px;text-align:center;}
+#log-title{font-size:9px;letter-spacing:2px;text-transform:uppercase;
+  color:rgba(255,215,0,0.55);margin-bottom:4px;}
+#log-list{font-size:11px;color:#FFD700;line-height:1.7;}
 
 /* ── ウィンドパネル ── */
 #hud-wind{position:absolute;top:14px;right:14px;padding:10px 14px;text-align:right;min-width:108px;}
@@ -163,8 +170,14 @@ canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block;}
   <!-- ウィンド -->
   <div id="hud-wind" class="glass">
     <div class="lbl">Wind</div>
-    <div id="ui-wind">-- kn</div>
+    <div id="ui-wind">-- m/s</div>
     <div id="ui-speed">SPD: --</div>
+  </div>
+
+  <!-- 高さログ -->
+  <div id="hud-log" class="glass">
+    <div id="log-title">▲ Best Heights</div>
+    <div id="log-list">--</div>
   </div>
 
   <!-- 飛行中スタッツ -->
@@ -258,6 +271,7 @@ const sy = wy => wy - CAM.y;
 
 // ── ゲーム変数 ──
 let score = 0, best = 0, jumpCount = 0, frame = 0;
+let heightLog = []; // 最高高さログ (上位5件)
 let resultCard = null;
 
 // ── プレイヤー ──
@@ -645,6 +659,12 @@ function land() {
     const airtimeS = (P.airTime / FPS).toFixed(1);
     const pts      = Math.floor(P.peakH * 0.35 + P.airTime * 0.18 + P.trickScore);
     score += pts; if (score > best) best = score;
+    // 高さログに追加
+    if (heightM > 0) {
+        heightLog.push(heightM);
+        heightLog.sort((a,b)=>b-a);
+        heightLog = heightLog.slice(0,5);
+    }
 
     showResultCard({
         heightM, distM, airtimeS, pts,
@@ -735,8 +755,13 @@ function updateUI() {
     document.getElementById('ui-score').textContent = score;
     document.getElementById('ui-best').textContent  = 'BEST: ' + best;
     document.getElementById('ui-jumps').textContent = 'JUMPS: ' + jumpCount;
-    document.getElementById('ui-wind').textContent  = wind + ' kn →';
+    document.getElementById('ui-wind').textContent  = wind + ' m/s →';
     document.getElementById('ui-speed').textContent = 'SPD: ' + spd;
+    // 高さログ
+    const logEl = document.getElementById('log-list');
+    logEl.textContent = heightLog.length
+        ? heightLog.map((h,i)=>`${i+1}. ${h} m`).join('\n')
+        : '--';
 
     // パワーバー
     const pct  = Math.min(100, K.power / 10 * 100);
@@ -815,26 +840,36 @@ function cloud(x,y,s){
 }
 
 function drawIslands(){
+    // プレイヤー位置で周期的に繰り返す島（画面幅の3倍周期）
     const ISLS=[
-        {base:500,  w:240,h:75, col:'#2a7a3b',par:0.22},
-        {base:2400, w:340,h:100,col:'#33934a',par:0.17},
-        {base:-900, w:170,h:55, col:'#257234',par:0.28},
-        {base:3900, w:280,h:85, col:'#3aaa52',par:0.14},
-        {base:1400, w:120,h:40, col:'#1e6630',par:0.32},
+        {phase:0.05, w:220,h:70, col:'#2a7a3b'},
+        {phase:0.28, w:310,h:95, col:'#33934a'},
+        {phase:0.50, w:150,h:50, col:'#257234'},
+        {phase:0.70, w:260,h:80, col:'#3aaa52'},
+        {phase:0.88, w:110,h:38, col:'#1e6630'},
     ];
-    const wy = sy(WATER_Y);
+    const wy      = sy(WATER_Y);
+    const period  = W * 3.5;
+    const offset  = P.x * 0.12; // プレイヤー速度の12%でゆっくり流れる
+
     ISLS.forEach(isl=>{
-        const cx = isl.base - CAM.x*isl.par + W*0.5;
+        const raw = ((isl.phase * period - offset) % period + period) % period;
+        const cx  = raw - W * 0.15; // 画面左端より少し外から開始
+        if (cx < -isl.w - 10 || cx > W + isl.w + 10) return;
+
+        // 島本体
         ctx.fillStyle = isl.col;
         ctx.beginPath();
-        ctx.moveTo(cx-isl.w/2, wy);
-        ctx.bezierCurveTo(cx-isl.w*.38,wy-isl.h*1.3, cx+isl.w*.38,wy-isl.h*1.3, cx+isl.w/2,wy);
+        ctx.moveTo(cx - isl.w/2, wy);
+        ctx.bezierCurveTo(cx-isl.w*.38,wy-isl.h*1.3, cx+isl.w*.38,wy-isl.h*1.3, cx+isl.w/2, wy);
         ctx.closePath(); ctx.fill();
-        ctx.fillStyle = '#e8c87a';
+        // 砂浜
+        ctx.fillStyle='#e8c87a';
         ctx.beginPath();
-        ctx.ellipse(cx,wy,isl.w*.38,isl.h*.16,0,Math.PI,0); ctx.fill();
-        palm(cx-isl.w*.08, wy-isl.h*.88, isl.h*.65);
-        if(isl.w>180) palm(cx+isl.w*.16, wy-isl.h*.72, isl.h*.52);
+        ctx.ellipse(cx, wy, isl.w*.38, isl.h*.16, 0, Math.PI, 0); ctx.fill();
+        // ヤシ
+        palm(cx - isl.w*.08, wy - isl.h*.88, isl.h*.65);
+        if (isl.w > 180) palm(cx + isl.w*.16, wy - isl.h*.72, isl.h*.52);
     });
 }
 function palm(x,y,h){
@@ -859,11 +894,27 @@ function drawWater(){
     for(let i=0;i<8;i++){const shx=left+((frame*1.3+i*138)%(W+400)); ctx.fillRect(shx,WATER_Y+5,55,2);}
 }
 function drawWaves(){
-    ctx.strokeStyle='rgba(180,235,255,0.52)'; ctx.lineWidth=1.7;
     WAVES.forEach(w=>{
-        const wy=WATER_Y+Math.sin(w.ph+frame*.022)*w.amp*.28;
-        ctx.beginPath(); ctx.moveTo(w.worldX,wy);
-        ctx.bezierCurveTo(w.worldX+w.len*.3,wy-w.amp,w.worldX+w.len*.7,wy-w.amp,w.worldX+w.len,wy);
+        const wy = WATER_Y + Math.sin(w.ph + frame*.022) * w.amp * .22;
+        const crest = wy - w.amp * .85;
+        // 波の塗りグラデーション
+        const g = ctx.createLinearGradient(0, crest, 0, wy + 8);
+        g.addColorStop(0,   'rgba(230,250,255,0.75)');
+        g.addColorStop(0.4, 'rgba(160,225,245,0.35)');
+        g.addColorStop(1,   'rgba(120,200,230,0.0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(w.worldX, wy);
+        ctx.bezierCurveTo(w.worldX+w.len*.25, crest, w.worldX+w.len*.75, crest, w.worldX+w.len, wy);
+        ctx.lineTo(w.worldX+w.len, wy+8);
+        ctx.lineTo(w.worldX, wy+8);
+        ctx.closePath();
+        ctx.fill();
+        // 白いクレスト（波頭）
+        ctx.strokeStyle='rgba(255,255,255,0.45)'; ctx.lineWidth=1.5;
+        ctx.beginPath();
+        ctx.moveTo(w.worldX + w.len*.15, crest + 3);
+        ctx.bezierCurveTo(w.worldX+w.len*.38,crest, w.worldX+w.len*.62,crest, w.worldX+w.len*.85,crest+3);
         ctx.stroke();
     });
 }
@@ -885,37 +936,64 @@ function drawKiteLine(){
 }
 function drawKite(){
     ctx.save(); ctx.translate(K.x, K.y);
-    const rad = K.angle * Math.PI / 180;
-    ctx.rotate(rad + Math.PI/2);
 
-    const col = K.edgeState==='collapse' ? '#888' :
-                K.edgeState==='warn'     ? '#FFD700' :
-                K.looping                ? '#00BFFF' : '#1E90FF';
+    const collapsed = K.edgeState === 'collapse';
+    const warned    = K.edgeState === 'warn';
+    if (K.looping) { ctx.shadowColor='#00BFFF'; ctx.shadowBlur=22; }
 
-    if (K.looping) { ctx.shadowColor='#00BFFF'; ctx.shadowBlur=18; }
+    // カイトを線方向に垂直に向ける
+    const kRad = (K.angle + 90) * Math.PI / 180;
+    ctx.rotate(kRad);
 
-    // Cシェイプカイト本体
-    ctx.fillStyle = col;
+    const W2 = 34, H2 = 14; // 翼幅・高さ
+
+    // 翼パネル色
+    const cL = collapsed ? '#555' : warned ? '#CC9900' : K.looping ? '#0099EE' : '#EE3300';
+    const cR = collapsed ? '#444' : warned ? '#FFD700' : K.looping ? '#00CCFF' : '#FFFFFF';
+
+    // 左翼
+    ctx.fillStyle = cL;
     ctx.beginPath();
-    ctx.moveTo(0, -28);
-    ctx.bezierCurveTo(22,-26, 28,-8, 22, 10);
-    ctx.bezierCurveTo(18, 20, 6, 22, 0, 20);
-    ctx.bezierCurveTo(-6, 22,-18, 20,-22, 10);
-    ctx.bezierCurveTo(-28,-8,-22,-26, 0,-28);
-    ctx.fill();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-W2*.3,-H2, -W2*.85,-H2*.5, -W2, H2*.5);
+    ctx.bezierCurveTo(-W2*.7, H2*.9, -W2*.25, H2*.8, 0, H2*.4);
+    ctx.closePath(); ctx.fill();
 
-    // ブラダー（中央の白いライン）
-    ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=3;
+    // 右翼
+    ctx.fillStyle = cR;
     ctx.beginPath();
-    ctx.moveTo(0,-24);
-    ctx.bezierCurveTo(4,-10, 4,6, 0,18);
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(W2*.3,-H2, W2*.85,-H2*.5, W2, H2*.5);
+    ctx.bezierCurveTo(W2*.7, H2*.9, W2*.25, H2*.8, 0, H2*.4);
+    ctx.closePath(); ctx.fill();
+
+    // センターパネル（差し色）
+    ctx.fillStyle = collapsed ? '#333' : warned ? '#886600' : K.looping ? '#0055BB' : '#CC1100';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-W2*.18, -H2*.7);
+    ctx.lineTo(0, H2*.4);
+    ctx.lineTo(W2*.18, -H2*.7);
+    ctx.closePath(); ctx.fill();
+
+    // リーディングエッジ（太い輝くアーク）
+    const leG = ctx.createLinearGradient(-W2,0,W2,0);
+    leG.addColorStop(0,'rgba(255,255,255,0.3)');
+    leG.addColorStop(.5,'rgba(255,255,255,0.9)');
+    leG.addColorStop(1,'rgba(255,255,255,0.3)');
+    ctx.strokeStyle = leG; ctx.lineWidth = 5; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(-W2, H2*.5);
+    ctx.bezierCurveTo(-W2*.85,-H2*.5, -W2*.3,-H2, 0, 0);
+    ctx.bezierCurveTo(W2*.3,-H2, W2*.85,-H2*.5, W2, H2*.5);
     ctx.stroke();
 
-    // ストラット（横のライン）
-    ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1.5;
-    [-14,0,14].forEach(ox=>{
-        ctx.beginPath(); ctx.moveTo(ox,-18); ctx.lineTo(ox*0.85,14); ctx.stroke();
+    // ウィングチップ
+    [-W2, W2].forEach(tx=>{
+        ctx.fillStyle='rgba(255,255,255,0.7)';
+        ctx.beginPath(); ctx.arc(tx, H2*.5, 3.5, 0, Math.PI*2); ctx.fill();
     });
+
     ctx.shadowBlur=0;
     ctx.restore();
 }
