@@ -266,7 +266,7 @@ function updatePlayer() {
             const uplift  = Math.max(0, -Math.sin(kiteRad)); // 0(水平)〜1(真上)
 
             P.vy  = -(popStr * (0.35 + 0.65 * uplift));      // 上方向成分
-            P.vx += P.dir * popStr * (1 - uplift) * 1.2;     // 横方向成分（真上なら0）
+            P.vx += P.dir * popStr * (1 - uplift) * 0.5;     // 横方向成分（1.2→0.5に削減）
             P.onWater = false;
             P.airTime = 0; P.peakH = 0; P.jumpX = P.x;
             P.trickScore = 0; P.tricks.clear(); P.trickRot = 0; P.rot = 0;
@@ -303,6 +303,7 @@ function updatePlayer() {
         }
 
         P.vx += pullX * 0.28;
+        P.vx *= 0.982; // 空中水平抵抗（飛距離を抑制）
         const grav = P.floatFrames > 0 ? GRAVITY * 0.35 : GRAVITY;
         P.vy += pullY * 0.28 + grav;
 
